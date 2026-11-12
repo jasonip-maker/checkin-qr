@@ -61,6 +61,9 @@ with col2:
 
 st.code(qr_message, language=None)
 
+# 顯示可直接點擊開啟的 checkin:// 超連結
+st.markdown(f'<a href="{qr_message}" class="uri-link">🔗 {qr_message}</a>', unsafe_allow_html=True)
+
 # 提供一鍵刷新按鈕，方便跨過 :15 分時手動更新
 if st.button("🔄 重新整理時間", use_container_width=True):
     st.rerun()
