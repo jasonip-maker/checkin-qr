@@ -1,6 +1,7 @@
 import datetime
 import io
 import qrcode
+from PIL import Image
 import streamlit as st
 
 st.set_page_config(page_title="Check-in QR", page_icon="📱", layout="centered")
@@ -25,6 +26,8 @@ if "qr_box_size" not in st.session_state:
     st.session_state.qr_box_size = 10
 if "qr_mask" not in st.session_state:
     st.session_state.qr_mask = -1  # -1 代表 Auto (自動選擇最佳遮罩), 0~7 代表指定遮罩
+if "qr_transpose" not in st.session_state:
+    st.session_state.qr_transpose = False  # False 代表正常方向, True 代表對角線翻轉
 
 EC_MAP = {
     "L": qrcode.constants.ERROR_CORRECT_L,
@@ -75,7 +78,11 @@ except qrcode.exceptions.DataOverflowError:
     qr.add_data(qr_message)
     qr.make(fit=True)
 
-img = qr.make_image(fill_color="black", back_color="white")
+img = qr.make_image(fill_color="black", back_color="white").convert("RGB")
+
+# 套用對角線翻轉（沿左上至右下主對角線鏡像 / Transpose）
+if st.session_state.qr_transpose:
+    img = img.transpose(Image.Transpose.TRANSPOSE)
 
 buf = io.BytesIO()
 img.save(buf, format="PNG")
@@ -84,7 +91,8 @@ st.subheader(f"{now_hkt.strftime('%Y-%m-%d %H:%M:%S')} HKT")
 offset_label = f" (微調: {st.session_state.hour_offset:+d})" if st.session_state.hour_offset != 0 else ""
 ver_label = "Auto" if st.session_state.qr_version == 0 else f"V{qr.version}"
 mask_label = "Auto" if st.session_state.qr_mask == -1 else f"M{qr.mask_pattern}"
-st.caption(f"有效時段：Hour {effective_hour}{offset_label} ｜ {ver_label} · EC:{st.session_state.qr_ec} · Mask:{mask_label} · Size:{st.session_state.qr_box_size}")
+trans_label = " · 對角翻轉:ON" if st.session_state.qr_transpose else ""
+st.caption(f"有效時段：Hour {effective_hour}{offset_label} ｜ {ver_label} · EC:{st.session_state.qr_ec} · Mask:{mask_label} · Size:{st.session_state.qr_box_size}{trans_label}")
 
 col1, col2, col3 = st.columns([1, 4, 1])
 with col2:
@@ -112,8 +120,20 @@ with btn_col3:
 st.divider()
 
 # QR Code 參數調整區塊
-with st.expander("⚙️ QR Code 參數設定 (Version / 容錯率 / Mask / Module Size)", expanded=True):
-    # 1. Version 調整
+with st.expander("⚙️ QR Code 參數設定 (Version / 容錯率 / Mask / 方向 / Size)", expanded=True):
+    # 1. 對角線翻轉開關
+    st.caption(f"**對角線翻轉 (Transpose):** {'開啟 (ON)' if st.session_state.qr_transpose else '關閉 (OFF)'}")
+    t_col1, t_col2 = st.columns(2)
+    with t_col1:
+        if st.button("正常方向", key="trans_off", type="secondary" if st.session_state.qr_transpose else "primary", use_container_width=True):
+            st.session_state.qr_transpose = False
+            st.rerun()
+    with t_col2:
+        if st.button("🔄 對角線翻轉", key="trans_on", type="primary" if st.session_state.qr_transpose else "secondary", use_container_width=True):
+            st.session_state.qr_transpose = True
+            st.rerun()
+
+    # 2. Version 調整
     st.caption(f"**Version (版本):** {'自動 (Auto)' if st.session_state.qr_version == 0 else f'Version {st.session_state.qr_version} (實際: V{qr.version})'}")
     v_col1, v_col2, v_col3 = st.columns(3)
     with v_col1:
@@ -129,7 +149,7 @@ with st.expander("⚙️ QR Code 參數設定 (Version / 容錯率 / Mask / Modu
             st.session_state.qr_version += 1
             st.rerun()
 
-    # 2. Error Correction 容錯率調整
+    # 3. Error Correction 容錯率調整
     st.caption(f"**Error Correction (容錯率):** {st.session_state.qr_ec}")
     ec_cols = st.columns(4)
     for idx, level in enumerate(["L", "M", "Q", "H"]):
@@ -139,7 +159,7 @@ with st.expander("⚙️ QR Code 參數設定 (Version / 容錯率 / Mask / Modu
                 st.session_state.qr_ec = level
                 st.rerun()
 
-    # 3. Mask Pattern 遮罩樣式調整 (Auto + 0~7)
+    # 4. Mask Pattern 遮罩樣式調整 (Auto + 0~7)
     st.caption(f"**Mask Pattern (遮罩樣式):** {'Auto' if st.session_state.qr_mask == -1 else st.session_state.qr_mask} (實際: {qr.mask_pattern})")
     mask_row1 = st.columns(5)
     with mask_row1[0]:
@@ -162,7 +182,7 @@ with st.expander("⚙️ QR Code 參數設定 (Version / 容錯率 / Mask / Modu
                 st.session_state.qr_mask = m
                 st.rerun()
 
-    # 4. Module Size (box_size) 調整
+    # 5. Module Size (box_size) 調整
     st.caption(f"**Module Size (方格像素):** {st.session_state.qr_box_size} px")
     m_col1, m_col2, m_col3 = st.columns(3)
     with m_col1:
