@@ -120,7 +120,7 @@ with btn_col3:
 st.divider()
 
 # QR Code 參數調整區塊
-with st.expander("⚙️ QR Code 參數設定 (Version / 容錯率 / Mask / 方向 / Size)", expanded=True):
+with st.expander("⚙️ QR Code 參數設定 (Version / 容錯率 / Mask / 方向 / Size)", expanded=False):
     # 1. 對角線翻轉開關
     st.caption(f"**對角線翻轉 (Transpose):** {'開啟 (ON)' if st.session_state.qr_transpose else '關閉 (OFF)'}")
     t_col1, t_col2 = st.columns(2)
@@ -190,7 +190,7 @@ with st.expander("⚙️ QR Code 參數設定 (Version / 容錯率 / Mask / 方�
             st.session_state.qr_box_size -= 2
             st.rerun()
     with m_col2:
-        if st.button("預設 (10px)", use_container_width=True):
+        if st.button("預設 (24px)", use_container_width=True):
             st.session_state.qr_box_size = 10
             st.rerun()
     with m_col3:
