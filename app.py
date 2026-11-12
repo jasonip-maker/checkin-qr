@@ -19,7 +19,7 @@ if "hour_offset" not in st.session_state:
 
 hkt = datetime.timezone(datetime.timedelta(hours=8), name="HKT")
 now_hkt = datetime.datetime.now(hkt)
-effective_time = now_hkt + datetime.timedelta(minutes=15)
+effective_time = now_hkt + datetime.timedelta(minutes=5)
 effective_hour = (effective_time.hour + st.session_state.hour_offset) % 24
 
 computed_bytes = [
