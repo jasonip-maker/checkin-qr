@@ -23,6 +23,8 @@ if "qr_ec" not in st.session_state:
     st.session_state.qr_ec = "L"
 if "qr_box_size" not in st.session_state:
     st.session_state.qr_box_size = 10
+if "qr_mask" not in st.session_state:
+    st.session_state.qr_mask = -1  # -1 代表 Auto (自動選擇最佳遮罩), 0~7 代表指定遮罩
 
 EC_MAP = {
     "L": qrcode.constants.ERROR_CORRECT_L,
@@ -50,12 +52,15 @@ qr_message = f"checkin://q?91/@{hex_payload}"
 
 # 產生 QR Code（若指定版本容量不足該容錯率，自動升級至最小可用版本避免報錯）
 target_version = None if st.session_state.qr_version == 0 else st.session_state.qr_version
+target_mask = None if st.session_state.qr_mask == -1 else st.session_state.qr_mask
+
 try:
     qr = qrcode.QRCode(
         version=target_version,
         error_correction=EC_MAP[st.session_state.qr_ec],
         box_size=st.session_state.qr_box_size,
         border=2,
+        mask_pattern=target_mask,
     )
     qr.add_data(qr_message)
     qr.make(fit=(target_version is None))
@@ -65,6 +70,7 @@ except qrcode.exceptions.DataOverflowError:
         error_correction=EC_MAP[st.session_state.qr_ec],
         box_size=st.session_state.qr_box_size,
         border=2,
+        mask_pattern=target_mask,
     )
     qr.add_data(qr_message)
     qr.make(fit=True)
@@ -77,7 +83,8 @@ img.save(buf, format="PNG")
 st.subheader(f"{now_hkt.strftime('%Y-%m-%d %H:%M:%S')} HKT")
 offset_label = f" (微調: {st.session_state.hour_offset:+d})" if st.session_state.hour_offset != 0 else ""
 ver_label = "Auto" if st.session_state.qr_version == 0 else f"V{qr.version}"
-st.caption(f"有效時段：Hour {effective_hour}{offset_label} ｜ {ver_label} · EC:{st.session_state.qr_ec} · Size:{st.session_state.qr_box_size}")
+mask_label = "Auto" if st.session_state.qr_mask == -1 else f"M{qr.mask_pattern}"
+st.caption(f"有效時段：Hour {effective_hour}{offset_label} ｜ {ver_label} · EC:{st.session_state.qr_ec} · Mask:{mask_label} · Size:{st.session_state.qr_box_size}")
 
 col1, col2, col3 = st.columns([1, 4, 1])
 with col2:
@@ -105,7 +112,7 @@ with btn_col3:
 st.divider()
 
 # QR Code 參數調整區塊
-with st.expander("⚙️ QR Code 參數設定 (Version / 容錯率 / Module Size)", expanded=True):
+with st.expander("⚙️ QR Code 參數設定 (Version / 容錯率 / Mask / Module Size)", expanded=True):
     # 1. Version 調整
     st.caption(f"**Version (版本):** {'自動 (Auto)' if st.session_state.qr_version == 0 else f'Version {st.session_state.qr_version} (實際: V{qr.version})'}")
     v_col1, v_col2, v_col3 = st.columns(3)
@@ -132,7 +139,30 @@ with st.expander("⚙️ QR Code 參數設定 (Version / 容錯率 / Module Size
                 st.session_state.qr_ec = level
                 st.rerun()
 
-    # 3. Module Size (box_size) 調整
+    # 3. Mask Pattern 遮罩樣式調整 (Auto + 0~7)
+    st.caption(f"**Mask Pattern (遮罩樣式):** {'Auto' if st.session_state.qr_mask == -1 else st.session_state.qr_mask} (實際: {qr.mask_pattern})")
+    mask_row1 = st.columns(5)
+    with mask_row1[0]:
+        btn_type = "primary" if st.session_state.qr_mask == -1 else "secondary"
+        if st.button("Auto", key="mask_auto", type=btn_type, use_container_width=True):
+            st.session_state.qr_mask = -1
+            st.rerun()
+    for m in range(4):
+        with mask_row1[m + 1]:
+            btn_type = "primary" if st.session_state.qr_mask == m else "secondary"
+            if st.button(f"{m}", key=f"mask_{m}", type=btn_type, use_container_width=True):
+                st.session_state.qr_mask = m
+                st.rerun()
+
+    mask_row2 = st.columns(4)
+    for m in range(4, 8):
+        with mask_row2[m - 4]:
+            btn_type = "primary" if st.session_state.qr_mask == m else "secondary"
+            if st.button(f"{m}", key=f"mask_{m}", type=btn_type, use_container_width=True):
+                st.session_state.qr_mask = m
+                st.rerun()
+
+    # 4. Module Size (box_size) 調整
     st.caption(f"**Module Size (方格像素):** {st.session_state.qr_box_size} px")
     m_col1, m_col2, m_col3 = st.columns(3)
     with m_col1:
