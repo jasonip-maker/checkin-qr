@@ -38,24 +38,33 @@ EC_MAP = {
 
 hkt = datetime.timezone(datetime.timedelta(hours=8), name="HKT")
 now_hkt = datetime.datetime.now(hkt)
-effective_time = now_hkt + datetime.timedelta(minutes=5)
-effective_hour = (effective_time.hour + st.session_state.hour_offset) % 24
 
+# 加上 5 分鐘 (:55 進位) 與手動時段微調，確保跨午夜時年/月/日同步連動更新
+effective_time = now_hkt + datetime.timedelta(minutes=5, hours=st.session_state.hour_offset)
+effective_year = effective_time.year
+effective_month = effective_time.month
+effective_day = effective_time.day
+effective_hour = effective_time.hour
+
+# 自動年月日與時段演算公式 (B0 ~ B5)
 computed_bytes = [
     0x2C,
-    (41 + effective_hour) % 256,
-    (42 + effective_hour) % 256,
-    (6 + effective_hour) % 256,
+    (effective_month + 30 + effective_hour) % 256,
+    (effective_day + 30 + effective_hour) % 256,
+    ((effective_year % 10) + effective_hour) % 256,
     0x24,
-    (79 + effective_hour) % 256,
+    ((effective_year % 100) + effective_month + effective_day + 30 + effective_hour) % 256,
 ]
 
 hex_payload = "".join(f"{b:02X}" for b in computed_bytes)
 qr_message = f"checkin://q?91/@{hex_payload}"
 
-# 產生 QR Code（若指定版本容量不足該容錯率，自動升級至最小可用版本避免報錯）
+# 產生 QR Code（Auto 模式下 Hour 15 自動切換為 Mask 1，其餘交給 Auto）
 target_version = None if st.session_state.qr_version == 0 else st.session_state.qr_version
-target_mask = None if st.session_state.qr_mask == -1 else st.session_state.qr_mask
+if st.session_state.qr_mask == -1:
+    target_mask = 1 if effective_hour == 15 else None
+else:
+    target_mask = st.session_state.qr_mask
 
 try:
     qr = qrcode.QRCode(
@@ -90,9 +99,9 @@ img.save(buf, format="PNG")
 st.subheader(f"{now_hkt.strftime('%Y-%m-%d %H:%M:%S')} HKT")
 offset_label = f" (微調: {st.session_state.hour_offset:+d})" if st.session_state.hour_offset != 0 else ""
 ver_label = "Auto" if st.session_state.qr_version == 0 else f"V{qr.version}"
-mask_label = "Auto" if st.session_state.qr_mask == -1 else f"M{qr.mask_pattern}"
+mask_label = f"Auto(M{qr.mask_pattern})" if st.session_state.qr_mask == -1 else f"M{qr.mask_pattern}"
 trans_label = " · 對角翻轉:ON" if st.session_state.qr_transpose else ""
-st.caption(f"有效時段：Hour {effective_hour}{offset_label} ｜ {ver_label} · EC:{st.session_state.qr_ec} · Mask:{mask_label} · Size:{st.session_state.qr_box_size}{trans_label}")
+st.caption(f"有效日期時段：{effective_time.strftime('%Y/%m/%d')} Hour {effective_hour}{offset_label} ｜ {ver_label} · EC:{st.session_state.qr_ec} · Mask:{mask_label} · Size:{st.session_state.qr_box_size}{trans_label}")
 
 col1, col2, col3 = st.columns([1, 4, 1])
 with col2:
@@ -191,7 +200,7 @@ with st.expander("⚙️ QR Code 參數設定 (Version / 容錯率 / Mask / 方�
             st.rerun()
     with m_col2:
         if st.button("預設 (24px)", use_container_width=True):
-            st.session_state.qr_box_size = 10
+            st.session_state.qr_box_size = 24
             st.rerun()
     with m_col3:
         if st.button("➕ Size +2", use_container_width=True, disabled=(st.session_state.qr_box_size >= 24)):
