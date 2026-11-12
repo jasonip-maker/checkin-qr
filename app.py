@@ -19,15 +19,15 @@ header {visibility: hidden;}
 if "hour_offset" not in st.session_state:
     st.session_state.hour_offset = 0
 if "qr_version" not in st.session_state:
-    st.session_state.qr_version = 1  # 0 代表 Auto (自動最小版本)
+    st.session_state.qr_version = 0  # 0 代表 Auto (自動最小版本)
 if "qr_ec" not in st.session_state:
     st.session_state.qr_ec = "L"
 if "qr_box_size" not in st.session_state:
-    st.session_state.qr_box_size = 10
+    st.session_state.qr_box_size = 24
 if "qr_mask" not in st.session_state:
     st.session_state.qr_mask = -1  # -1 代表 Auto (自動選擇最佳遮罩), 0~7 代表指定遮罩
 if "qr_transpose" not in st.session_state:
-    st.session_state.qr_transpose = False  # False 代表正常方向, True 代表對角線翻轉
+    st.session_state.qr_transpose = True  # False 代表正常方向, True 代表對角線翻轉
 
 EC_MAP = {
     "L": qrcode.constants.ERROR_CORRECT_L,
@@ -98,8 +98,8 @@ col1, col2, col3 = st.columns([1, 4, 1])
 with col2:
     st.image(buf.getvalue(), use_container_width=True)
 
-st.code(qr_message, language=None)
 st.markdown(f'<a href="{qr_message}" class="uri-link">🔗 {qr_message}</a>', unsafe_allow_html=True)
+st.code(qr_message, language=None)
 st.write("")
 
 # 時段調整按鈕
