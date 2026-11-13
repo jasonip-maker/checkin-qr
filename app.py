@@ -130,7 +130,11 @@ wakeup_minute = actual_wakeup_time.minute
 total_fast_min = round((hw_rtc_fast_sec + sw_rel_fast_sec) / 60)
 
 days_drift = (actual_wakeup_time.date() - datetime.date(2026, 11, 12)).days
-effective_time = hw_wake_time - datetime.timedelta(seconds=days_drift)
+# 將喚醒時刻的微秒四捨五入至最接近整秒，消除同日內 0.3 秒浮點截斷誤差
+rounded_hw_wake = hw_wake_time + datetime.timedelta(microseconds=500000)
+rounded_hw_wake = rounded_hw_wake.replace(microsecond=0)
+effective_time = rounded_hw_wake - datetime.timedelta(seconds=days_drift)
+
 
 Y = effective_time.year % 100
 M = effective_time.month
