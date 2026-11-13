@@ -1,20 +1,70 @@
 import datetime
 import io
+import re
+import urllib.request
 import qrcode
 from PIL import Image
 import streamlit as st
 
 st.set_page_config(page_title="Check-in QR", page_icon="📱", layout="centered")
 
-# 初始化 Session State
+BASE_MHZ = 16.0
+REF_URL = "https://githubusercontent.com"
+
+def calibrate_from_github(url: str, start_date: datetime.date, init_min: int):
+    req = urllib.request.urlopen(url, timeout=5)
+    lines = req.read().decode("utf-8").splitlines()
+    records = []
+    for line in lines:
+        m_obj = re.search(r"(\d{4}/\d{2}/\d{2}\s+\d{2}:\d{2}).*?@([0-9A-Fa-f]{12})", line)
+        if m_obj:
+            obs_dt = datetime.datetime.strptime(m_obj.group(1), "%Y/%m/%d %H:%M")
+            b = [int(m_obj.group(2)[i:i+2], 16) for i in range(0, 12, 2)]
+            dec_Y = -2*b[0] - 3*b[1] - b[2] + b[3] + b[4] + 3*b[5]
+            dec_M =  2*b[0] + 3*b[1]        - b[3] - b[4] - 2*b[5]
+            dec_D =  2*b[0] + 2*b[1] + b[2] - b[3] - b[4] - 2*b[5]
+            dec_H =   -b[0] -   b[1]        + b[3]        +   b[5]
+            dec_m =    b[0] +   b[1]                      -   b[5]
+            dec_s =   -b[0] -   b[1]               + b[4] +   b[5]
+            rtc_dt = datetime.datetime(2000 + dec_Y, dec_M, dec_D, dec_H, dec_m, dec_s)
+            records.append((obs_dt, rtc_dt))
+
+    if not records:
+        return None
+
+    # 偵測真實觸發分鐘（取同小時換碼的最早邊界分鐘）
+    obs_minutes = [r[0].minute for r in records if r[0].minute >= 45]
+    wakeup_min = min(obs_minutes) if obs_minutes else 55
+
+    # 取第一筆有效紀錄計算基準偏移
+    first_obs, first_rtc = records[0]
+    days = max(1, (first_obs.date() - start_date).days)
+    total_sec = days * 86400
+
+    # 1. 軟體喚醒走快秒數 (由初始分鐘提早至 wakeup_min)
+    sw_fast_min = (init_min - wakeup_min) % 60
+    sw_mhz = BASE_MHZ * (1 + (sw_fast_min * 60) / total_sec)
+
+    # 2. 硬體晶振走快秒數 (喚醒整點時刻與 RTC 讀出時間差)
+    wake_dt = first_obs.replace(minute=wakeup_min, second=0)
+    if first_obs.minute < wakeup_min:
+        wake_dt -= datetime.timedelta(hours=1)
+    hw_fast_sec = (first_rtc - wake_dt).total_seconds()
+    hw_mhz = BASE_MHZ * (1 + hw_fast_sec / total_sec)
+
+    return round(sw_mhz, 6), round(hw_mhz, 6)
+
+# 初始化 Session State (預設 2025/08/01 起始，共 468 天至 2026/11/12)
 if "hour_offset" not in st.session_state:
     st.session_state.hour_offset = 0
+if "start_date" not in st.session_state:
+    st.session_state.start_date = datetime.date(2025, 8, 1)
 if "init_wakeup_min" not in st.session_state:
-    st.session_state.init_wakeup_min = 10    # 1年多前設定的初始喚醒分鐘 (:10)
-if "sw_wakeup_fast_min" not in st.session_state:
-    st.session_state.sw_wakeup_fast_min = 15 # 軟體喚醒累計走快 (15分鐘 -> :55觸發)
-if "hw_rtc_fast_sec" not in st.session_state:
-    st.session_state.hw_rtc_fast_sec = 690   # 硬體晶振累計走快 (690秒 = 11分30秒 -> 由:55起讀出:06:30)
+    st.session_state.init_wakeup_min = 10
+if "sw_freq_mhz" not in st.session_state:
+    st.session_state.sw_freq_mhz = 16.000356  # +22.26 ppm -> 快 15 分鐘 (:55 觸發)
+if "hw_freq_mhz" not in st.session_state:
+    st.session_state.hw_freq_mhz = 16.000273  # +17.06 ppm -> 快 690 秒 (:06:30 讀出)
 if "qr_version" not in st.session_state:
     st.session_state.qr_version = 0
 if "qr_ec" not in st.session_state:
@@ -35,21 +85,25 @@ EC_MAP = {
 
 hkt = datetime.timezone(datetime.timedelta(hours=8), name="HKT")
 now_hkt = datetime.datetime.now(hkt)
-
-# 1. 計算實際喚醒觸發時刻 (真實時間何時換碼)
-# 原本 :15 喚醒，軟體快了 20 分鐘 -> 提早到真實時間 :55 觸發 (即基準時間往前推 5 分鐘進位)
-wakeup_minute = (st.session_state.init_wakeup_min - st.session_state.sw_wakeup_fast_min) % 60
 adjusted_now = now_hkt + datetime.timedelta(hours=st.session_state.hour_offset)
 
-# 找出當前生效的「真實世界喚醒整點時刻」
+# 依據 2025/08/01 至今的總運行秒數，將 MHz 頻率換算為累積偏移時間
+elapsed_days = max(1, (adjusted_now.date() - st.session_state.start_date).days)
+elapsed_total_sec = elapsed_days * 86400
+
+sw_fast_sec = ((st.session_state.sw_freq_mhz - BASE_MHZ) / BASE_MHZ) * elapsed_total_sec
+sw_wakeup_fast_min = round(sw_fast_sec / 60)
+hw_rtc_fast_sec = round(((st.session_state.hw_freq_mhz - BASE_MHZ) / BASE_MHZ) * elapsed_total_sec)
+
+# 1. 計算實際喚醒觸發時刻
+wakeup_minute = (st.session_state.init_wakeup_min - sw_wakeup_fast_min) % 60
 actual_wakeup_time = adjusted_now.replace(minute=wakeup_minute, second=0, microsecond=0)
 if adjusted_now.minute < wakeup_minute:
     actual_wakeup_time -= datetime.timedelta(hours=1)
 
 # 2. 加上硬體晶振偏移，得出喚醒當刻裝置內部 Read_RTC_Time() 讀到的時間
-# 真實 :55:00 + 硬體晶振走快 690 秒 (11分30秒) = 下個小時的 :06:30
 days_drift = (actual_wakeup_time.date() - datetime.date(2026, 11, 12)).days
-effective_time = actual_wakeup_time + datetime.timedelta(seconds=st.session_state.hw_rtc_fast_sec - days_drift)
+effective_time = actual_wakeup_time + datetime.timedelta(seconds=hw_rtc_fast_sec - days_drift)
 
 Y = effective_time.year % 100
 M = effective_time.month
@@ -148,28 +202,50 @@ with btn_col3:
 
 st.divider()
     
-# 雙層時鐘漂移參數微調 (軟體喚醒偏移 + 硬體晶振偏移)
-st.caption(f"**觸發狀態：** 真實時間每小時 `:{wakeup_minute:02d}` 換碼 ｜ 裝置內部 RTC 讀出 `:{m:02d}:{s:02d}`")
-drift_col1, drift_col2, drift_col3 = st.columns(3)
-with drift_col1:
-    new_init = st.number_input("初始喚醒分", min_value=0, max_value=59, value=st.session_state.init_wakeup_min, step=1)
-    if new_init != st.session_state.init_wakeup_min:
-        st.session_state.init_wakeup_min = new_init
+# 雙層時鐘頻率微調 (MHz) 與 GitHub 自動校準
+sw_ppm = ((st.session_state.sw_freq_mhz - BASE_MHZ) / BASE_MHZ) * 1e6
+hw_ppm = ((st.session_state.hw_freq_mhz - BASE_MHZ) / BASE_MHZ) * 1e6
+st.caption(f"**運行 {elapsed_days} 天（自 {st.session_state.start_date} 起）：** 真實 `:{wakeup_minute:02d}` 換碼 ｜ RTC 讀出 `:{m:02d}:{s:02d}`")
+
+freq_col1, freq_col2 = st.columns(2)
+with freq_col1:
+    new_sw_mhz = st.number_input(
+        f"軟體喚醒頻率 MHz ({sw_ppm:+.2f} ppm / 快{sw_wakeup_fast_min}分)",
+        min_value=15.990000, max_value=16.010000,
+        value=float(st.session_state.sw_freq_mhz), step=0.000005, format="%.6f"
+    )
+    if new_sw_mhz != st.session_state.sw_freq_mhz:
+        st.session_state.sw_freq_mhz = new_sw_mhz
         st.rerun()
-with drift_col2:
-    new_sw = st.number_input("軟體走快(分)", min_value=-60, max_value=60, value=st.session_state.sw_wakeup_fast_min, step=1)
-    if new_sw != st.session_state.sw_wakeup_fast_min:
-        st.session_state.sw_wakeup_fast_min = new_sw
+
+with freq_col2:
+    new_hw_mhz = st.number_input(
+        f"硬體晶振頻率 MHz ({hw_ppm:+.2f} ppm / 快{hw_rtc_fast_sec}秒)",
+        min_value=15.990000, max_value=16.010000,
+        value=float(st.session_state.hw_freq_mhz), step=0.000001, format="%.6f"
+    )
+    if new_hw_mhz != st.session_state.hw_freq_mhz:
+        st.session_state.hw_freq_mhz = new_hw_mhz
         st.rerun()
-with drift_col3:
-    new_hw = st.number_input("硬體晶振快(秒)", min_value=-3600, max_value=3600, value=st.session_state.hw_rtc_fast_sec, step=1)
-    if new_hw != st.session_state.hw_rtc_fast_sec:
-        st.session_state.hw_rtc_fast_sec = new_hw
+
+cal_col1, cal_col2 = st.columns([2, 1])
+with cal_col1:
+    new_start = st.date_input("起始對時日期", value=st.session_state.start_date)
+    if new_start != st.session_state.start_date:
+        st.session_state.start_date = new_start
         st.rerun()
+with cal_col2:
+    st.write("")
+    st.write("")
+    if st.button("📡 從 GitHub 校準 MHz", use_container_width=True):
+        res = calibrate_from_github(REF_URL, st.session_state.start_date, st.session_state.init_wakeup_min)
+        if res:
+            st.session_state.sw_freq_mhz, st.session_state.hw_freq_mhz = res
+            st.rerun()
 
 st.divider()
 
-# QR Code 與內部時間參數調整區塊
+# QR Code 調整區塊
 with st.expander("⚙️ QR Code 與裝置時間參數設定", expanded=False):
     # 1. 對角線翻轉開關
     st.caption(f"**對角線翻轉 (Transpose):** {'開啟 (ON)' if st.session_state.qr_transpose else '關閉 (OFF)'}")
