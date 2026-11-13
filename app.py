@@ -37,13 +37,15 @@ now_hkt = datetime.datetime.now(hkt)
 # 加上 5 分鐘 (:55 進位) 與手動時段微調，確保跨午夜時年/月/日同步連動更新
 effective_time = now_hkt + datetime.timedelta(minutes=5, hours=st.session_state.hour_offset)
 
-# 定義 6 個時間變數
+# 模擬無連網裝置 RTC 晶振每日慢 1 秒的微漂移（11/12 為 30 秒 -> 0x24，11/13 為 29 秒 -> 0x23）
+days_drift = (effective_time.date() - datetime.date(2026, 11, 12)).days
+
 Y = effective_time.year % 100
 M = effective_time.month
 D = effective_time.day
 H = effective_time.hour
 m = st.session_state.sim_minute
-s = st.session_state.sim_second
+s = (st.session_state.sim_second - days_drift) % 60
 
 # 正向編碼計算 (6 Bytes)
 b0 = (Y + D + m) % 256
@@ -53,7 +55,7 @@ b3 = (H + m) % 256
 b4 = (m + s) % 256
 b5 = (Y + M + D + H + s) % 256
 
-# 逆向解碼還原驗證 (對應廠方 DECODE_MATRIX)
+# 逆向解碼還原驗證
 dec_Y = -2*b0 - 3*b1 - b2 + b3 + b4 + 3*b5
 dec_M =  2*b0 + 3*b1      - b3 - b4 - 2*b5
 dec_D =  2*b0 + 2*b1 + b2 - b3 - b4 - 2*b5
