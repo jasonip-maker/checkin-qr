@@ -203,7 +203,7 @@ img.save(buf, format="PNG")
 st.subheader(f"{now_hkt.strftime('%Y-%m-%d %H:%M:%S')} HKT")
 offset_label = f" (微調: {st.session_state.hour_offset:+d})" if st.session_state.hour_offset != 0 else ""
 ver_label = "Auto" if st.session_state.qr_version == 0 else f"V{qr.version}"
-mask_label = f"Auto(M{qr.mask_pattern})" if st.session_state.qr_mask == -1 else f"M{qr.mask_pattern}"
+mask_label = f"Auto(M{actual_mask})" if st.session_state.qr_mask == -1 else f"M{qr.mask_pattern}"
 trans_label = " · 對角翻轉:ON" if st.session_state.qr_transpose else ""
 st.caption(f"有效日期時段：{effective_time.strftime('%Y/%m/%d')} Hour {effective_time.hour}{offset_label} ｜ {ver_label} · EC:{st.session_state.qr_ec} · Mask:{mask_label} · Size:{st.session_state.qr_box_size}{trans_label}")
 
