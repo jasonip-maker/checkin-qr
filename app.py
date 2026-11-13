@@ -8,7 +8,7 @@ st.set_page_config(page_title="Check-in QR", page_icon="📱", layout="centered"
 
 # 廠方正向編碼矩陣 A (B 的逆矩陣)，輸入為 [年(YY), 月, 日, 時, 分, 秒]
 ENCODE_MATRIX = [
-    [ 1,  1,  1,  0,  0,  0],
+    [ 1,  0,  1,  0,  1,  0],
     [ 0,  1,  0,  1,  0,  1],
     [ 0,  0,  1,  1,  0,  1],
     [ 0,  0,  0,  1,  1,  0],
