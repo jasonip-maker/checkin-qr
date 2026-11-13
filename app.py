@@ -6,26 +6,6 @@ import streamlit as st
 
 st.set_page_config(page_title="Check-in QR", page_icon="📱", layout="centered")
 
-# 廠方正向編碼矩陣 A (B 的逆矩陣)，輸入為 [年(YY), 月, 日, 時, 分, 秒]
-ENCODE_MATRIX = [
-    [ 1,  0,  1,  0,  1,  0],
-    [ 0,  1,  0,  1,  0,  1],
-    [ 0,  0,  1,  1,  0,  1],
-    [ 0,  0,  0,  1,  1,  0],
-    [ 0,  0,  0,  0,  1,  1],
-    [ 1,  1,  1,  1,  0,  1]
-]
-
-# 廠方伺服器逆向解碼矩陣 B (用於驗證輸出是否正確)
-DECODE_MATRIX = [
-    [-2, -3, -1,  1,  1,  3],
-    [ 2,  3,  0, -1, -1, -2],
-    [ 2,  2,  1, -1, -1, -2],
-    [-1, -1,  0,  1,  0,  1],
-    [ 1,  1,  0,  0,  0, -1],
-    [-1, -1,  0,  0,  1,  1],
-]
-
 # 初始化 Session State
 if "hour_offset" not in st.session_state:
     st.session_state.hour_offset = 0
@@ -65,19 +45,15 @@ src = [
     st.session_state.sim_second,
 ]
 
-# 執行 6x6 正向矩陣運算 (dst = A * src)
-computed_bytes = [
-    sum(ENCODE_MATRIX[i][j] * src[j] for j in range(6)) % 256
-    for i in range(6)
-]
+# 核心修正：使用純整數加法計算 6 Bytes payload
+b0 = (Y + D + m) % 256
+b1 = (M + H + s) % 256
+b2 = (D + H + s) % 256
+b3 = (H + m) % 256
+b4 = (m + s) % 256
+b5 = (Y + M + D + H + s) % 256
 
-# 執行逆向矩陣驗證還原 (decoded = B * dst)
-decoded_src = [
-    sum(DECODE_MATRIX[i][j] * computed_bytes[j] for j in range(6))
-    for i in range(6)
-]
-
-hex_payload = "".join(f"{b:02X}" for b in computed_bytes)
+hex_payload = f"{b0:02X}{b1:02X}{b2:02X}{b3:02X}{b4:02X}{b5:02X}"
 qr_message = f"checkin://q?91/@{hex_payload}"
 
 # 產生 QR Code（Auto 模式下 Hour 15 自動切換為 Mask 1，其餘交給 Auto）
