@@ -8,42 +8,56 @@ import streamlit as st
 
 st.set_page_config(page_title="Check-in QR", page_icon="📱", layout="centered")
 
+import os
+
 BASE_MHZ = 16.0
+LOCAL_REF_PATH = os.path.join(os.path.dirname(__file__), "reference")
 REF_URL = "https://githubusercontent.com"
 
 def calibrate_from_github(url: str, start_date: datetime.date, init_min: int):
-    req = urllib.request.urlopen(url, timeout=5)
-    lines = req.read().decode("utf-8").splitlines()
+    try:
+        if os.path.exists(LOCAL_REF_PATH):
+            with open(LOCAL_REF_PATH, "r", encoding="utf-8") as f:
+                lines = f.read().splitlines()
+        else:
+            req = urllib.request.urlopen(url, timeout=5)
+            lines = req.read().decode("utf-8").splitlines()
+    except Exception as e:
+        st.error(f"讀取 reference 檔案失敗：{e}")
+        return None
+
     records = []
     for line in lines:
         m_obj = re.search(r"(\d{4}/\d{2}/\d{2}\s+\d{2}:\d{2}).*?@([0-9A-Fa-f]{12})", line)
         if m_obj:
             obs_dt = datetime.datetime.strptime(m_obj.group(1), "%Y/%m/%d %H:%M")
-            b = [int(m_obj.group(2)[i:i+2], 16) for i in range(0, 12, 2)]
-            dec_Y = -2*b[0] - 3*b[1] - b[2] + b[3] + b[4] + 3*b[5]
-            dec_M =  2*b[0] + 3*b[1]        - b[3] - b[4] - 2*b[5]
-            dec_D =  2*b[0] + 2*b[1] + b[2] - b[3] - b[4] - 2*b[5]
-            dec_H =   -b[0] -   b[1]        + b[3]        +   b5
-            dec_m =    b[0] +   b[1]                      -   b5
-            dec_s =   -b[0] -   b[1]               + b[4] +   b5
+            hex_str = m_obj.group(2)
+            b0, b1, b2, b3, b4, b5 = (int(hex_str[i:i+2], 16) for i in range(0, 12, 2))
+            dec_Y = -2*b0 - 3*b1 - b2 + b3 + b4 + 3*b5
+            dec_M =  2*b0 + 3*b1      - b3 - b4 - 2*b5
+            dec_D =  2*b0 + 2*b1 + b2 - b3 - b4 - 2*b5
+            dec_H =   -b0 -   b1      + b3      +   b5
+            dec_m =    b0 +   b1                -   b5
+            dec_s =   -b0 -   b1           + b4 +   b5
             rtc_dt = datetime.datetime(2000 + dec_Y, dec_M, dec_D, dec_H, dec_m, dec_s)
             records.append((obs_dt, rtc_dt))
 
     if not records:
+        st.warning("在 reference 檔案中找不到符合格式的紀錄。")
         return None
 
-    obs_minutes = [r[0].minute for r in records if r[0].minute >= 45]
+    obs_minutes = [obs.minute for obs, _ in records if obs.minute >= 45]
     wakeup_min = min(obs_minutes) if obs_minutes else 55
 
     first_obs, first_rtc = records[0]
     days = max(1, (first_obs.date() - start_date).days)
     total_sec = days * 86400
 
-    # 1. 軟體喚醒走快換算為 MHz 與 ppm
+    # 1. 軟體喚醒走快換算為 MHz
     sw_fast_min = (init_min - wakeup_min) % 60
     sw_mhz = BASE_MHZ * (1 + (sw_fast_min * 60) / total_sec)
 
-    # 2. 硬體晶振走快直接換算為 ppm
+    # 2. 硬體晶振走快換算為 ppm
     wake_dt = first_obs.replace(minute=wakeup_min, second=0)
     if first_obs.minute < wakeup_min:
         wake_dt -= datetime.timedelta(hours=1)
@@ -51,6 +65,7 @@ def calibrate_from_github(url: str, start_date: datetime.date, init_min: int):
     hw_ppm = (hw_fast_sec / total_sec) * 1e6
 
     return round(sw_mhz, 6), round(hw_ppm, 2)
+
 
 # 初始化 Session State (預設 2025/08/01 起始，共 468 天至 2026/11/12)
 if "hour_offset" not in st.session_state:
