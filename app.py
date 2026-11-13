@@ -9,20 +9,22 @@ st.set_page_config(page_title="Check-in QR", page_icon="📱", layout="centered"
 # 初始化 Session State
 if "hour_offset" not in st.session_state:
     st.session_state.hour_offset = 0
-if "sim_minute" not in st.session_state:
-    st.session_state.sim_minute = 6   # 模擬裝置 RTC 整點刷新分鐘 (預設 06 分)
-if "sim_second" not in st.session_state:
-    st.session_state.sim_second = 30  # 模擬裝置 RTC 整點刷新秒數 (預設 30 秒)
+if "init_wakeup_min" not in st.session_state:
+    st.session_state.init_wakeup_min = 15    # 1年多前設定的初始喚醒分鐘 (:15)
+if "sw_wakeup_fast_min" not in st.session_state:
+    st.session_state.sw_wakeup_fast_min = 20 # 軟體喚醒累計走快 (20分鐘 -> :55觸發)
+if "hw_rtc_fast_sec" not in st.session_state:
+    st.session_state.hw_rtc_fast_sec = 690   # 硬體晶振累計走快 (690秒 = 11分30秒 -> 讀出:06:30)
 if "qr_version" not in st.session_state:
-    st.session_state.qr_version = 0   # 0 代表 Auto (自動最小版本)
+    st.session_state.qr_version = 0
 if "qr_ec" not in st.session_state:
     st.session_state.qr_ec = "L"
 if "qr_box_size" not in st.session_state:
     st.session_state.qr_box_size = 24
 if "qr_mask" not in st.session_state:
-    st.session_state.qr_mask = -1   # -1 代表 Auto (自動選擇最佳遮罩), 0~7 代表指定遮罩
+    st.session_state.qr_mask = -1
 if "qr_transpose" not in st.session_state:
-    st.session_state.qr_transpose = True  # False 代表正常方向, True 代表對角線翻轉
+    st.session_state.qr_transpose = True
 
 EC_MAP = {
     "L": qrcode.constants.ERROR_CORRECT_L,
@@ -34,19 +36,27 @@ EC_MAP = {
 hkt = datetime.timezone(datetime.timedelta(hours=8), name="HKT")
 now_hkt = datetime.datetime.now(hkt)
 
-# 加上 5 分鐘 (:55 進位) 與手動時段微調，確保跨午夜時年/月/日同步連動更新
-effective_time = now_hkt + datetime.timedelta(minutes=5, hours=st.session_state.hour_offset)
+# 1. 計算實際喚醒觸發時刻 (真實時間何時換碼)
+# 原本 :15 喚醒，軟體快了 20 分鐘 -> 提早到真實時間 :55 觸發 (即基準時間往前推 5 分鐘進位)
+wakeup_minute = (st.session_state.init_wakeup_min - st.session_state.sw_wakeup_fast_min) % 60
+adjusted_now = now_hkt + datetime.timedelta(hours=st.session_state.hour_offset)
 
-# 模擬無連網裝置 RTC 晶振每日慢 1 秒的微漂移（11/12 為 30 秒 -> 0x24，11/13 為 29 秒 -> 0x23）
-# days_drift = (effective_time.date() - datetime.date(2026, 11, 12)).days
+# 找出當前生效的「真實世界喚醒整點時刻」
+actual_wakeup_time = adjusted_now.replace(minute=wakeup_minute, second=0, microsecond=0)
+if adjusted_now.minute < wakeup_minute:
+    actual_wakeup_time -= datetime.timedelta(hours=1)
+
+# 2. 加上硬體晶振偏移，得出喚醒當刻裝置內部 Read_RTC_Time() 讀到的時間
+# 真實 :55:00 + 硬體晶振走快 690 秒 (11分30秒) = 下個小時的 :06:30
+days_drift = (actual_wakeup_time.date() - datetime.date(2026, 11, 12)).days
+effective_time = actual_wakeup_time + datetime.timedelta(seconds=st.session_state.hw_rtc_fast_sec - days_drift)
 
 Y = effective_time.year % 100
 M = effective_time.month
 D = effective_time.day
 H = effective_time.hour
-m = st.session_state.sim_minute
-s = st.session_state.sim_second
-# s = (st.session_state.sim_second - days_drift) % 60
+m = effective_time.minute
+s = effective_time.second
 
 # 正向編碼計算 (6 Bytes)
 b0 = (Y + D + m) % 256
@@ -138,18 +148,23 @@ with btn_col3:
 
 st.divider()
     
-# 裝置 RTC 刷新分秒微調
-st.caption(f"**裝置 RTC 內部刷新分秒：** {st.session_state.sim_minute:02d} 分 {st.session_state.sim_second:02d} 秒")
-rtc_col1, rtc_col2 = st.columns(2)
-with rtc_col1:
-    new_min = st.number_input("刷新分鐘 (0-59)", min_value=0, max_value=59, value=st.session_state.sim_minute, step=1)
-    if new_min != st.session_state.sim_minute:
-        st.session_state.sim_minute = new_min
+# 雙層時鐘漂移參數微調 (軟體喚醒偏移 + 硬體晶振偏移)
+st.caption(f"**觸發狀態：** 真實時間每小時 `:{wakeup_minute:02d}` 換碼 ｜ 裝置內部 RTC 讀出 `:{m:02d}:{s:02d}`")
+drift_col1, drift_col2, drift_col3 = st.columns(3)
+with drift_col1:
+    new_init = st.number_input("初始喚醒分", min_value=0, max_value=59, value=st.session_state.init_wakeup_min, step=1)
+    if new_init != st.session_state.init_wakeup_min:
+        st.session_state.init_wakeup_min = new_init
         st.rerun()
-with rtc_col2:
-    new_sec = st.number_input("刷新秒數 (0-59)", min_value=0, max_value=59, value=st.session_state.sim_second, step=1)
-    if new_sec != st.session_state.sim_second:
-        st.session_state.sim_second = new_sec
+with drift_col2:
+    new_sw = st.number_input("軟體走快(分)", min_value=-60, max_value=60, value=st.session_state.sw_wakeup_fast_min, step=1)
+    if new_sw != st.session_state.sw_wakeup_fast_min:
+        st.session_state.sw_wakeup_fast_min = new_sw
+        st.rerun()
+with drift_col3:
+    new_hw = st.number_input("硬體晶振快(秒)", min_value=-3600, max_value=3600, value=st.session_state.hw_rtc_fast_sec, step=1)
+    if new_hw != st.session_state.hw_rtc_fast_sec:
+        st.session_state.hw_rtc_fast_sec = new_hw
         st.rerun()
 
 st.divider()
