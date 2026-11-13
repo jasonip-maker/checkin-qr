@@ -82,9 +82,9 @@ if "start_date" not in st.session_state:
 if "init_wakeup_min" not in st.session_state:
     st.session_state.init_wakeup_min = 10
 if "sw_rel_ppm" not in st.session_state:
-    st.session_state.sw_rel_ppm = 5.170    # 第二層：軟體相對硬體再快 210 秒 (+5.170 ppm)
+    st.session_state.sw_rel_ppm = 5.185    # 第二層：軟體相對硬體再快 210 秒 (+5.185 ppm)
 if "hw_drift_ppm" not in st.session_state:
-    st.session_state.hw_drift_ppm = 16.929 # 第一層：硬體晶振本身快 690 秒 (+16.929 ppm)
+    st.session_state.hw_drift_ppm = 17.037 # 第一層：硬體晶振本身快 690 秒 (+17.037 ppm)
 if "qr_version" not in st.session_state:
     st.session_state.qr_version = 0
 if "qr_ec" not in st.session_state:
