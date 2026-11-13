@@ -136,11 +136,11 @@ with btn_col3:
         st.session_state.hour_offset += 1
         st.rerun()
 
-st.divider()
+# st.divider()
     
-# 0. 裝置 RTC 刷新分秒微調
-    st.caption(f"**裝置 RTC 內部刷新分秒：** {st.session_state.sim_minute:02d} 分 {st.session_state.sim_second:02d} 秒")
-    rtc_col1, rtc_col2 = st.columns(2)
+# 裝置 RTC 刷新分秒微調
+st.caption(f"**裝置 RTC 內部刷新分秒：** {st.session_state.sim_minute:02d} 分 {st.session_state.sim_second:02d} 秒")
+rtc_col1, rtc_col2 = st.columns(2)
     with rtc_col1:
         new_min = st.number_input("刷新分鐘 (0-59)", min_value=0, max_value=59, value=st.session_state.sim_minute, step=1)
         if new_min != st.session_state.sim_minute:
