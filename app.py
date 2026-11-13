@@ -53,18 +53,19 @@ def calibrate_from_github(url: str, start_date: datetime.date, init_min: int):
     days = max(1, (first_obs.date() - start_date).days)
     total_sec = days * 86400
 
-    # 1. 軟體喚醒走快直接換算為 ppm
-    sw_fast_min = (init_min - wakeup_min) % 60
-    sw_ppm = ((sw_fast_min * 60) / total_sec) * 1e6
-
-    # 2. 硬體晶振走快直接換算為 ppm
+    # 1. 優先計算硬體層時差 (ppm)
     wake_dt = first_obs.replace(minute=wakeup_min, second=0)
     if first_obs.minute < wakeup_min:
         wake_dt -= datetime.timedelta(hours=1)
     hw_fast_sec = (first_rtc - wake_dt).total_seconds()
     hw_ppm = (hw_fast_sec / total_sec) * 1e6
 
-    return round(sw_ppm, 2), round(hw_ppm, 2)
+    # 2. 再計算軟體層相對時差 (相對於硬體時脈的額外走快 ppm)
+    total_sw_fast_sec = ((init_min - wakeup_min) % 60) * 60
+    sw_rel_sec = total_sw_fast_sec - hw_fast_sec
+    sw_ppm = (sw_rel_sec / total_sec) * 1e6
+
+    return round(hw_ppm, 3), round(sw_ppm, 3)
 
 # 初始化 Session State (預設 2025/08/01 起始，共 468 天至 2026/11/12)
 if "hour_offset" not in st.session_state:
@@ -73,10 +74,10 @@ if "start_date" not in st.session_state:
     st.session_state.start_date = datetime.date(2025, 8, 1)
 if "init_wakeup_min" not in st.session_state:
     st.session_state.init_wakeup_min = 10
-if "sw_drift_ppm" not in st.session_state:
-    st.session_state.sw_drift_ppm = 22.10  # +22.10 ppm -> 快 15 分鐘 (:55 觸發)
+if "sw_rel_ppm" not in st.session_state:
+    st.session_state.sw_rel_ppm = 5.170    # 第二層：軟體相對硬體再快 210 秒 (+5.170 ppm)
 if "hw_drift_ppm" not in st.session_state:
-    st.session_state.hw_drift_ppm = 16.929  # +16.929 ppm -> 快 690 秒 (:06:30 讀出)
+    st.session_state.hw_drift_ppm = 16.929 # 第一層：硬體晶振本身快 690 秒 (+16.929 ppm)
 if "qr_version" not in st.session_state:
     st.session_state.qr_version = 0
 if "qr_ec" not in st.session_state:
@@ -104,23 +105,25 @@ start_dt = datetime.datetime.combine(st.session_state.start_date, datetime.time(
 elapsed_total_sec = max(86400.0, (adjusted_now - start_dt).total_seconds())
 elapsed_days = int(elapsed_total_sec // 86400)
 
-# 2. 由軟體誤差 (ppm) 與硬體誤差 (ppm) 換算累積走快秒數
-sw_fast_sec = (st.session_state.sw_drift_ppm / 1e6) * elapsed_total_sec
+# 2. 第一層：先計算硬體晶振偏移，得出當下「裝置內部硬體 RTC 時鐘」
 hw_rtc_fast_sec = (st.session_state.hw_drift_ppm / 1e6) * elapsed_total_sec
+hw_clock_now = adjusted_now + datetime.timedelta(seconds=hw_rtc_fast_sec)
 
-# 3. 連續時間軸推算：先將真實時間推進至「軟體排程器時鐘」，找出最近一次 :10 分喚醒點
-sw_clock_now = adjusted_now + datetime.timedelta(seconds=sw_fast_sec)
+# 3. 第二層：在硬體時脈基礎上，疊加軟體排程器相對誤差，找出最近一次 :10 喚醒點
+sw_rel_fast_sec = (st.session_state.sw_rel_ppm / 1e6) * elapsed_total_sec
+sw_clock_now = hw_clock_now + datetime.timedelta(seconds=sw_rel_fast_sec)
 sw_last_wake = sw_clock_now.replace(minute=st.session_state.init_wakeup_min, second=0, microsecond=0)
 if sw_clock_now < sw_last_wake:
     sw_last_wake -= datetime.timedelta(hours=1)
 
-# 4. 還原為真實世界觸發時刻，並加上硬體晶振偏移得出裝置內部讀取時間
-actual_wakeup_time = sw_last_wake - datetime.timedelta(seconds=sw_fast_sec)
+# 4. 還原喚醒當刻的硬體 RTC 讀數與真實世界觸發時刻
+hw_wake_time = sw_last_wake - datetime.timedelta(seconds=sw_rel_fast_sec)
+actual_wakeup_time = hw_wake_time - datetime.timedelta(seconds=hw_rtc_fast_sec)
 wakeup_minute = actual_wakeup_time.minute
-sw_wakeup_fast_min = round(sw_fast_sec / 60)
+total_fast_min = round((hw_rtc_fast_sec + sw_rel_fast_sec) / 60)
 
 days_drift = (actual_wakeup_time.date() - datetime.date(2026, 11, 12)).days
-effective_time = actual_wakeup_time + datetime.timedelta(seconds=round(hw_rtc_fast_sec) - days_drift)
+effective_time = hw_wake_time - datetime.timedelta(seconds=days_drift)
 
 Y = effective_time.year % 100
 M = effective_time.month
@@ -220,41 +223,35 @@ with btn_col3:
 st.divider()
     
 # 雙層時鐘漂移微調 (軟體 ppm / 硬體 ppm) 與 GitHub 自動校準
-sw_equiv_mhz = BASE_MHZ * (1 + st.session_state.sw_drift_ppm / 1e6)
 hw_equiv_mhz = BASE_MHZ * (1 + st.session_state.hw_drift_ppm / 1e6)
+sw_equiv_mhz = BASE_MHZ * (1 + (st.session_state.hw_drift_ppm + st.session_state.sw_rel_ppm) / 1e6)
 st.caption(f"**運行 {elapsed_days} 天（自 {st.session_state.start_date} 起）：** 真實 `:{wakeup_minute:02d}` 換碼 ｜ RTC 讀出 `:{m:02d}:{s:02d}`")
 
 freq_col1, freq_col2 = st.columns(2)
 with freq_col1:
-    new_sw_ppm = st.number_input(
-        f"軟體喚醒誤差 ppm ({sw_equiv_mhz:.6f} MHz / 快{sw_wakeup_fast_min}分)",
-        min_value=-200.00,
-        max_value=200.00,
-        value=float(st.session_state.sw_drift_ppm),
-        step=0.001,
-        format="%.3f",
-    )
-    if new_sw_ppm != st.session_state.sw_drift_ppm:
-        st.session_state.sw_drift_ppm = new_sw_ppm
-        st.rerun()
-
-with freq_col2:
     new_hw_ppm = st.number_input(
-        f"硬體晶振誤差 ppm ({hw_equiv_mhz:.6f} MHz / 快{round(hw_rtc_fast_sec)}秒)",
-        min_value=-200.00,
-        max_value=200.00,
-        value=float(st.session_state.hw_drift_ppm),
-        step=0.001,
-        format="%.3f",
+        f"1. 硬體晶振誤差 ppm ({hw_equiv_mhz:.6f} MHz / 快{round(hw_rtc_fast_sec)}秒)",
+        min_value=-200.000, max_value=200.000,
+        value=float(st.session_state.hw_drift_ppm), step=0.001, format="%.3f",
     )
     if new_hw_ppm != st.session_state.hw_drift_ppm:
         st.session_state.hw_drift_ppm = new_hw_ppm
         st.rerun()
 
-if st.button("📡 從 GitHub reference 自動反推並校準 ppm", use_container_width=True):
+with freq_col2:
+    new_sw_ppm = st.number_input(
+        f"2. 軟體相對誤差 ppm ({sw_equiv_mhz:.6f} MHz / 總快{total_fast_min}分)",
+        min_value=-200.000, max_value=200.000,
+        value=float(st.session_state.sw_rel_ppm), step=0.001, format="%.3f",
+    )
+    if new_sw_ppm != st.session_state.sw_rel_ppm:
+        st.session_state.sw_rel_ppm = new_sw_ppm
+        st.rerun()
+
+if st.button("📡 從 reference 自動反推並校準 ppm", use_container_width=True):
     res = calibrate_from_github(REF_URL, st.session_state.start_date, st.session_state.init_wakeup_min)
     if res:
-        st.session_state.sw_drift_ppm, st.session_state.hw_drift_ppm = res
+        st.session_state.hw_drift_ppm, st.session_state.sw_rel_ppm = res
         st.rerun()
 
 st.divider()
