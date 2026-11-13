@@ -240,8 +240,8 @@ with freq_col2:
         min_value=-200.00,
         max_value=200.00,
         value=float(st.session_state.hw_drift_ppm),
-        step=0.10,
-        format="%.2f",
+        step=0.01,
+        format="%.4f",
     )
     if new_hw_ppm != st.session_state.hw_drift_ppm:
         st.session_state.hw_drift_ppm = new_hw_ppm
