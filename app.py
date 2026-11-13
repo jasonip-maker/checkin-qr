@@ -38,14 +38,15 @@ now_hkt = datetime.datetime.now(hkt)
 effective_time = now_hkt + datetime.timedelta(minutes=5, hours=st.session_state.hour_offset)
 
 # 模擬無連網裝置 RTC 晶振每日慢 1 秒的微漂移（11/12 為 30 秒 -> 0x24，11/13 為 29 秒 -> 0x23）
-days_drift = (effective_time.date() - datetime.date(2026, 11, 12)).days
+//days_drift = (effective_time.date() - datetime.date(2026, 11, 12)).days
 
 Y = effective_time.year % 100
 M = effective_time.month
 D = effective_time.day
 H = effective_time.hour
 m = st.session_state.sim_minute
-s = (st.session_state.sim_second - days_drift) % 60
+s = st.session_state.sim_second
+//s = (st.session_state.sim_second - days_drift) % 60
 
 # 正向編碼計算 (6 Bytes)
 b0 = (Y + D + m) % 256
