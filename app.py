@@ -10,7 +10,7 @@ st.set_page_config(page_title="Check-in QR", page_icon="📱", layout="centered"
 if "hour_offset" not in st.session_state:
     st.session_state.hour_offset = 0
 if "sim_minute" not in st.session_state:
-    st.session_state.sim_minute = 6   # 模擬裝置 RTC 整點刷新分鐘 (預設 06 分)
+    st.session_state.sim_minute = 5   # 模擬裝置 RTC 整點刷新分鐘 (預設 05 分)
 if "sim_second" not in st.session_state:
     st.session_state.sim_second = 29  # 模擬裝置 RTC 整點刷新秒數 (預設 29 秒)
 if "qr_version" not in st.session_state:
@@ -43,10 +43,7 @@ M = effective_time.month
 D = effective_time.day
 H = effective_time.hour
 m = st.session_state.sim_minute
-
-# 模擬無連網裝置 RTC 晶振每日慢 1 秒的微漂移（11/12 為 30 秒 -> 0x24，11/13 為 29 秒 -> 0x23）
-days_drift = (effective_time.date() - datetime.date(2026, 11, 12)).days
-s = (st.session_state.sim_second - days_drift) % 60
+s = st.session_state.sim_second
 
 # 正向編碼計算 (6 Bytes)
 b0 = (Y + D + m) % 256
