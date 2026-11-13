@@ -12,7 +12,7 @@ if "hour_offset" not in st.session_state:
 if "sim_minute" not in st.session_state:
     st.session_state.sim_minute = 6   # 模擬裝置 RTC 整點刷新分鐘 (預設 06 分)
 if "sim_second" not in st.session_state:
-    st.session_state.sim_second = 30  # 模擬裝置 RTC 整點刷新秒數 (預設 30 秒)
+    st.session_state.sim_second = 29  # 模擬裝置 RTC 整點刷新秒數 (預設 29 秒)
 if "qr_version" not in st.session_state:
     st.session_state.qr_version = 0   # 0 代表 Auto (自動最小版本)
 if "qr_ec" not in st.session_state:
