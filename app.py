@@ -46,21 +46,28 @@ def calibrate_from_github(url: str, start_date: datetime.date, init_min: int):
         st.warning("在 reference 檔案中找不到符合格式的紀錄。")
         return None
 
+    # 1. 偵測真實觸發分鐘（取 >=45 分中最接近整點的換碼邊界，即 :55）
     obs_minutes = [obs.minute for obs, _ in records if obs.minute >= 45]
     wakeup_min = min(obs_minutes) if obs_minutes else 55
 
-    first_obs, first_rtc = records[0]
-    days = max(1, (first_obs.date() - start_date).days)
-    total_sec = days * 86400
+    # 2. 優先挑選剛好在換碼邊界 (:55) 觀察到的紀錄，計算最精確的時間分母
+    boundary_recs = [(obs, rtc) for obs, rtc in records if obs.minute == wakeup_min]
+    target_obs, target_rtc = boundary_recs[0] if boundary_recs else records[0]
 
-    # 1. 優先計算硬體層時差 (ppm)
-    wake_dt = first_obs.replace(minute=wakeup_min, second=0)
-    if first_obs.minute < wakeup_min:
+    wake_dt = target_obs.replace(minute=wakeup_min, second=0)
+    if target_obs.minute < wakeup_min:
         wake_dt -= datetime.timedelta(hours=1)
-    hw_fast_sec = (first_rtc - wake_dt).total_seconds()
+
+    # 3. 採用與主程式完全一致的「精確總秒數」作為分母（避免整天數誤差）
+    start_dt = datetime.datetime.combine(start_date, datetime.time(0, 0))
+    total_sec = max(86400.0, (wake_dt - start_dt).total_seconds())
+
+    # 4. 補償跨日微漂移後，計算第一層「硬體晶振誤差 ppm」
+    days_drift = (wake_dt.date() - datetime.date(2026, 11, 12)).days
+    hw_fast_sec = (target_rtc + datetime.timedelta(seconds=days_drift) - wake_dt).total_seconds()
     hw_ppm = (hw_fast_sec / total_sec) * 1e6
 
-    # 2. 再計算軟體層相對時差 (相對於硬體時脈的額外走快 ppm)
+    # 5. 計算第二層「軟體排程器相對誤差 ppm」（總提前秒數扣除硬體走快秒數）
     total_sw_fast_sec = ((init_min - wakeup_min) % 60) * 60
     sw_rel_sec = total_sw_fast_sec - hw_fast_sec
     sw_ppm = (sw_rel_sec / total_sec) * 1e6
