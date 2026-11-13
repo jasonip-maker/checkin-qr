@@ -15,17 +15,35 @@ header {visibility: hidden;}
 </style>
 """, unsafe_allow_html=True)
 
+# 廠方正向編碼矩陣 A (B 的逆矩陣)，輸入為 [年(YY), 月, 日, 時, 分, 秒]
+ENCODE_MATRIX = [,  # B0 = Y + D + m,  # B1 = M + H + s,  # B2 = D + H + s,  # B3 = H + m,  # B4 = m + s,  # B5 = Y + M + D + H + s
+]
+
+# 廠方伺服器逆向解碼矩陣 B (用於驗證輸出是否正確)
+DECODE_MATRIX = [
+    [-2, -3, -1,  1,  1,  3],
+    [ 2,  3,  0, -1, -1, -2],
+    [ 2,  2,  1, -1, -1, -2],
+    [-1, -1,  0,  1,  0,  1],
+    [ 1,  1,  0,  0,  0, -1],
+    [-1, -1,  0,  0,  1,  1],
+]
+
 # 初始化 Session State
 if "hour_offset" not in st.session_state:
     st.session_state.hour_offset = 0
+if "sim_minute" not in st.session_state:
+    st.session_state.sim_minute = 6   # 模擬裝置 RTC 整點刷新分鐘 (預設 06 分)
+if "sim_second" not in st.session_state:
+    st.session_state.sim_second = 30  # 模擬裝置 RTC 整點刷新秒數 (預設 30 秒)
 if "qr_version" not in st.session_state:
-    st.session_state.qr_version = 0  # 0 代表 Auto (自動最小版本)
+    st.session_state.qr_version = 0   # 0 代表 Auto (自動最小版本)
 if "qr_ec" not in st.session_state:
     st.session_state.qr_ec = "L"
 if "qr_box_size" not in st.session_state:
     st.session_state.qr_box_size = 24
 if "qr_mask" not in st.session_state:
-    st.session_state.qr_mask = -1  # -1 代表 Auto (自動選擇最佳遮罩), 0~7 代表指定遮罩
+    st.session_state.qr_mask = -1   # -1 代表 Auto (自動選擇最佳遮罩), 0~7 代表指定遮罩
 if "qr_transpose" not in st.session_state:
     st.session_state.qr_transpose = True  # False 代表正常方向, True 代表對角線翻轉
 
@@ -41,19 +59,25 @@ now_hkt = datetime.datetime.now(hkt)
 
 # 加上 5 分鐘 (:55 進位) 與手動時段微調，確保跨午夜時年/月/日同步連動更新
 effective_time = now_hkt + datetime.timedelta(minutes=5, hours=st.session_state.hour_offset)
-effective_year = effective_time.year
-effective_month = effective_time.month
-effective_day = effective_time.day
-effective_hour = effective_time.hour
+src = [
+    effective_time.year % 100,
+    effective_time.month,
+    effective_time.day,
+    effective_time.hour,
+    st.session_state.sim_minute,
+    st.session_state.sim_second,
+]
 
-# 自動年月日與時段演算公式 (B0 ~ B5)
+# 執行 6x6 正向矩陣運算 (dst = A * src)
 computed_bytes = [
-    0x2C,
-    (effective_month + 30 + effective_hour) % 256,
-    (effective_day + 30 + effective_hour) % 256,
-    ((effective_year % 10) + effective_hour) % 256,
-    0x24,
-    ((effective_year % 100) + effective_month + effective_day + 30 + effective_hour) % 256,
+    sum(ENCODE_MATRIX[i][j] * src[j] for j in range(6)) % 256
+    for i in range(6)
+]
+
+# 執行逆向矩陣驗證還原 (decoded = B * dst)
+decoded_src = [
+    sum(DECODE_MATRIX[i][j] * computed_bytes[j] for j in range(6))
+    for i in range(6)
 ]
 
 hex_payload = "".join(f"{b:02X}" for b in computed_bytes)
@@ -62,7 +86,7 @@ qr_message = f"checkin://q?91/@{hex_payload}"
 # 產生 QR Code（Auto 模式下 Hour 15 自動切換為 Mask 1，其餘交給 Auto）
 target_version = None if st.session_state.qr_version == 0 else st.session_state.qr_version
 if st.session_state.qr_mask == -1:
-    target_mask = 1 if effective_hour == 15 else None
+    target_mask = 1 if effective_time.hour == 15 else None
 else:
     target_mask = st.session_state.qr_mask
 
@@ -101,7 +125,7 @@ offset_label = f" (微調: {st.session_state.hour_offset:+d})" if st.session_sta
 ver_label = "Auto" if st.session_state.qr_version == 0 else f"V{qr.version}"
 mask_label = f"Auto(M{qr.mask_pattern})" if st.session_state.qr_mask == -1 else f"M{qr.mask_pattern}"
 trans_label = " · 對角翻轉:ON" if st.session_state.qr_transpose else ""
-st.caption(f"有效日期時段：{effective_time.strftime('%Y/%m/%d')} Hour {effective_hour}{offset_label} ｜ {ver_label} · EC:{st.session_state.qr_ec} · Mask:{mask_label} · Size:{st.session_state.qr_box_size}{trans_label}")
+st.caption(f"有效日期時段：{effective_time.strftime('%Y/%m/%d')} Hour {effective_time.hour}{offset_label} ｜ {ver_label} · EC:{st.session_state.qr_ec} · Mask:{mask_label} · Size:{st.session_state.qr_box_size}{trans_label}")
 
 col1, col2, col3 = st.columns([1, 4, 1])
 with col2:
@@ -109,6 +133,7 @@ with col2:
 
 st.markdown(f'<a href="{qr_message}" class="uri-link">🔗 {qr_message}</a>', unsafe_allow_html=True)
 st.code(qr_message, language=None)
+st.caption(f"伺服器逆向還原核對：20{decoded_src[0]:02d}-{decoded_src[1]:02d}-{decoded_src[2]:02d} {decoded_src[3]:02d}:{decoded_src[4]:02d}:{decoded_src[5]:02d}")
 st.write("")
 
 # 時段調整按鈕
@@ -128,8 +153,24 @@ with btn_col3:
 
 st.divider()
 
-# QR Code 參數調整區塊
-with st.expander("⚙️ QR Code 參數設定 (Version / 容錯率 / Mask / 方向 / Size)", expanded=False):
+# QR Code 與內部時間參數調整區塊
+with st.expander("⚙️ QR Code 與裝置時間參數設定", expanded=False):
+    # 0. 裝置 RTC 刷新分秒微調
+    st.caption(f"**裝置 RTC 內部刷新分秒：** {st.session_state.sim_minute:02d} 分 {st.session_state.sim_second:02d} 秒")
+    rtc_col1, rtc_col2 = st.columns(2)
+    with rtc_col1:
+        new_min = st.number_input("刷新分鐘 (0-59)", min_value=0, max_value=59, value=st.session_state.sim_minute, step=1)
+        if new_min != st.session_state.sim_minute:
+            st.session_state.sim_minute = new_min
+            st.rerun()
+    with rtc_col2:
+        new_sec = st.number_input("刷新秒數 (0-59)", min_value=0, max_value=59, value=st.session_state.sim_second, step=1)
+        if new_sec != st.session_state.sim_second:
+            st.session_state.sim_second = new_sec
+            st.rerun()
+
+    st.divider()
+
     # 1. 對角線翻轉開關
     st.caption(f"**對角線翻轉 (Transpose):** {'開啟 (ON)' if st.session_state.qr_transpose else '關閉 (OFF)'}")
     t_col1, t_col2 = st.columns(2)
