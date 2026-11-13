@@ -66,7 +66,6 @@ def calibrate_from_github(url: str, start_date: datetime.date, init_min: int):
 
     return round(sw_ppm, 2), round(hw_ppm, 2)
 
-
 # 初始化 Session State (預設 2025/08/01 起始，共 468 天至 2026/11/12)
 if "hour_offset" not in st.session_state:
     st.session_state.hour_offset = 0
@@ -220,42 +219,42 @@ with btn_col3:
 
 st.divider()
     
-# 雙層時鐘漂移微調 (軟體 MHz / 硬體 ppm) 與 GitHub 自動校準
-sw_ppm = ((st.session_state.sw_freq_mhz - BASE_MHZ) / BASE_MHZ) * 1e6
+# 雙層時鐘漂移微調 (軟體 ppm / 硬體 ppm) 與 GitHub 自動校準
+sw_equiv_mhz = BASE_MHZ * (1 + st.session_state.sw_drift_ppm / 1e6)
 hw_equiv_mhz = BASE_MHZ * (1 + st.session_state.hw_drift_ppm / 1e6)
 st.caption(f"**運行 {elapsed_days} 天（自 {st.session_state.start_date} 起）：** 真實 `:{wakeup_minute:02d}` 換碼 ｜ RTC 讀出 `:{m:02d}:{s:02d}`")
 
 freq_col1, freq_col2 = st.columns(2)
 with freq_col1:
-    new_sw_mhz = st.number_input(
-        f"軟體喚醒頻率 MHz ({sw_ppm:+.2f} ppm / 快{sw_wakeup_fast_min}分)",
-        min_value=15.900000,
-        max_value=16.100000,
-        value=float(st.session_state.sw_freq_mhz),
-        step=0.000010,
-        format="%.6f",
+    new_sw_ppm = st.number_input(
+        f"軟體喚醒誤差 ppm ({sw_equiv_mhz:.6f} MHz / 快{sw_wakeup_fast_min}分)",
+        min_value=-200.00,
+        max_value=200.00,
+        value=float(st.session_state.sw_drift_ppm),
+        step=0.10,
+        format="%.2f",
     )
-    if new_sw_mhz != st.session_state.sw_freq_mhz:
-        st.session_state.sw_freq_mhz = new_sw_mhz
+    if new_sw_ppm != st.session_state.sw_drift_ppm:
+        st.session_state.sw_drift_ppm = new_sw_ppm
         st.rerun()
 
 with freq_col2:
     new_hw_ppm = st.number_input(
-        f"硬體晶振誤差 ppm ({hw_equiv_mhz:.6f} MHz / 快{hw_rtc_fast_sec}秒)",
+        f"硬體晶振誤差 ppm ({hw_equiv_mhz:.6f} MHz / 快{round(hw_rtc_fast_sec)}秒)",
         min_value=-200.00,
         max_value=200.00,
         value=float(st.session_state.hw_drift_ppm),
-        step=0.001,
-        format="%.3f",
+        step=0.10,
+        format="%.2f",
     )
     if new_hw_ppm != st.session_state.hw_drift_ppm:
         st.session_state.hw_drift_ppm = new_hw_ppm
         st.rerun()
 
-if st.button("📡 從 GitHub reference 自動反推並校準頻率", use_container_width=True):
+if st.button("📡 從 GitHub reference 自動反推並校準 ppm", use_container_width=True):
     res = calibrate_from_github(REF_URL, st.session_state.start_date, st.session_state.init_wakeup_min)
     if res:
-        st.session_state.sw_freq_mhz, st.session_state.hw_drift_ppm = res
+        st.session_state.sw_drift_ppm, st.session_state.hw_drift_ppm = res
         st.rerun()
 
 st.divider()
