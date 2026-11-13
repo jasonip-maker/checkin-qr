@@ -100,23 +100,28 @@ hkt = datetime.timezone(datetime.timedelta(hours=8), name="HKT")
 now_hkt = datetime.datetime.now(hkt)
 adjusted_now = now_hkt + datetime.timedelta(hours=st.session_state.hour_offset)
 
-# 依據 2025/08/01 至今的總運行秒數，分別由 MHz 與 ppm 換算累積偏移時間
-elapsed_days = max(1, (adjusted_now.date() - st.session_state.start_date).days)
-elapsed_total_sec = elapsed_days * 86400
+# 1. 計算自起始日至今的精確運行秒數（使用完整時間差，避免跨午夜日期錯位）
+start_dt = datetime.datetime.combine(st.session_state.start_date, datetime.time(0, 0), tzinfo=hkt)
+elapsed_total_sec = max(86400.0, (adjusted_now - start_dt).total_seconds())
+elapsed_days = int(elapsed_total_sec // 86400)
 
+# 2. 由軟體頻率 (MHz) 與硬體誤差 (ppm) 換算累積走快秒數
 sw_fast_sec = ((st.session_state.sw_freq_mhz - BASE_MHZ) / BASE_MHZ) * elapsed_total_sec
+hw_rtc_fast_sec = (st.session_state.hw_drift_ppm / 1e6) * elapsed_total_sec
+
+# 3. 連續時間軸推算：先將真實時間推進至「軟體排程器時鐘」，找出最近一次 :10 分喚醒點
+sw_clock_now = adjusted_now + datetime.timedelta(seconds=sw_fast_sec)
+sw_last_wake = sw_clock_now.replace(minute=st.session_state.init_wakeup_min, second=0, microsecond=0)
+if sw_clock_now < sw_last_wake:
+    sw_last_wake -= datetime.timedelta(hours=1)
+
+# 4. 還原為真實世界觸發時刻，並加上硬體晶振偏移得出裝置內部讀取時間
+actual_wakeup_time = sw_last_wake - datetime.timedelta(seconds=sw_fast_sec)
+wakeup_minute = actual_wakeup_time.minute
 sw_wakeup_fast_min = round(sw_fast_sec / 60)
-hw_rtc_fast_sec = round((st.session_state.hw_drift_ppm / 1e6) * elapsed_total_sec)
 
-# 1. 計算實際喚醒觸發時刻
-wakeup_minute = (st.session_state.init_wakeup_min - sw_wakeup_fast_min) % 60
-actual_wakeup_time = adjusted_now.replace(minute=wakeup_minute, second=0, microsecond=0)
-if adjusted_now.minute < wakeup_minute:
-    actual_wakeup_time -= datetime.timedelta(hours=1)
-
-# 2. 加上硬體晶振偏移，得出喚醒當刻裝置內部 Read_RTC_Time() 讀到的時間
 days_drift = (actual_wakeup_time.date() - datetime.date(2026, 11, 12)).days
-effective_time = actual_wakeup_time + datetime.timedelta(seconds=hw_rtc_fast_sec - days_drift)
+effective_time = actual_wakeup_time + datetime.timedelta(seconds=round(hw_rtc_fast_sec) - days_drift)
 
 Y = effective_time.year % 100
 M = effective_time.month
