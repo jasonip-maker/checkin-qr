@@ -308,7 +308,8 @@ with st.expander("⚙️ QR Code 與裝置時間參數設定", expanded=False):
                 st.rerun()
 
     # 4. Mask Pattern 遮罩樣式調整 (Auto + 0~7)
-    st.caption(f"**Mask Pattern (遮罩樣式):** {'Auto' if st.session_state.qr_mask == -1 else st.session_state.qr_mask} (實際: {qr.mask_pattern})")
+    actual_mask = qr.mask_pattern if qr.mask_pattern is not None else qr.best_mask_pattern()
+    st.caption(f"**Mask Pattern (遮罩樣式):** {'Auto' if st.session_state.qr_mask == -1 else st.session_state.qr_mask} (實際: M{actual_mask})")
     mask_row1 = st.columns(5)
     with mask_row1[0]:
         btn_type = "primary" if st.session_state.qr_mask == -1 else "secondary"
