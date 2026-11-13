@@ -10,11 +10,11 @@ st.set_page_config(page_title="Check-in QR", page_icon="📱", layout="centered"
 if "hour_offset" not in st.session_state:
     st.session_state.hour_offset = 0
 if "init_wakeup_min" not in st.session_state:
-    st.session_state.init_wakeup_min = 15    # 1年多前設定的初始喚醒分鐘 (:15)
+    st.session_state.init_wakeup_min = 10    # 1年多前設定的初始喚醒分鐘 (:10)
 if "sw_wakeup_fast_min" not in st.session_state:
-    st.session_state.sw_wakeup_fast_min = 20 # 軟體喚醒累計走快 (20分鐘 -> :55觸發)
+    st.session_state.sw_wakeup_fast_min = 15 # 軟體喚醒累計走快 (15分鐘 -> :55觸發)
 if "hw_rtc_fast_sec" not in st.session_state:
-    st.session_state.hw_rtc_fast_sec = 690   # 硬體晶振累計走快 (690秒 = 11分30秒 -> 讀出:06:30)
+    st.session_state.hw_rtc_fast_sec = 210   # 硬體晶振累計走快 (210秒 = 3分30秒 -> 讀出:06:30)
 if "qr_version" not in st.session_state:
     st.session_state.qr_version = 0
 if "qr_ec" not in st.session_state:
