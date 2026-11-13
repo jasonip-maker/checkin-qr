@@ -36,22 +36,31 @@ now_hkt = datetime.datetime.now(hkt)
 
 # 加上 5 分鐘 (:55 進位) 與手動時段微調，確保跨午夜時年/月/日同步連動更新
 effective_time = now_hkt + datetime.timedelta(minutes=5, hours=st.session_state.hour_offset)
-src = [
-    effective_time.year % 100,
-    effective_time.month,
-    effective_time.day,
-    effective_time.hour,
-    st.session_state.sim_minute,
-    st.session_state.sim_second,
-]
 
-# 核心修正：使用純整數加法計算 6 Bytes payload
+# 定義 6 個時間變數
+Y = effective_time.year % 100
+M = effective_time.month
+D = effective_time.day
+H = effective_time.hour
+m = st.session_state.sim_minute
+s = st.session_state.sim_second
+
+# 正向編碼計算 (6 Bytes)
 b0 = (Y + D + m) % 256
 b1 = (M + H + s) % 256
 b2 = (D + H + s) % 256
 b3 = (H + m) % 256
 b4 = (m + s) % 256
 b5 = (Y + M + D + H + s) % 256
+
+# 逆向解碼還原驗證 (對應廠方 DECODE_MATRIX)
+dec_Y = -2*b0 - 3*b1 - b2 + b3 + b4 + 3*b5
+dec_M =  2*b0 + 3*b1      - b3 - b4 - 2*b5
+dec_D =  2*b0 + 2*b1 + b2 - b3 - b4 - 2*b5
+dec_H =   -b0 -   b1      + b3      +   b5
+dec_m =    b0 +   b1                -   b5
+dec_s =   -b0 -   b1           + b4 +   b5
+decoded_src = (dec_Y, dec_M, dec_D, dec_H, dec_m, dec_s)
 
 hex_payload = f"{b0:02X}{b1:02X}{b2:02X}{b3:02X}{b4:02X}{b5:02X}"
 qr_message = f"checkin://q?91/@{hex_payload}"
