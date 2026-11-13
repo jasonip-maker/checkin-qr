@@ -137,10 +137,8 @@ with btn_col3:
         st.rerun()
 
 st.divider()
-
-# QR Code 與內部時間參數調整區塊
-with st.expander("⚙️ QR Code 與裝置時間參數設定", expanded=False):
-    # 0. 裝置 RTC 刷新分秒微調
+    
+# 0. 裝置 RTC 刷新分秒微調
     st.caption(f"**裝置 RTC 內部刷新分秒：** {st.session_state.sim_minute:02d} 分 {st.session_state.sim_second:02d} 秒")
     rtc_col1, rtc_col2 = st.columns(2)
     with rtc_col1:
@@ -156,6 +154,8 @@ with st.expander("⚙️ QR Code 與裝置時間參數設定", expanded=False):
 
     st.divider()
 
+# QR Code 與內部時間參數調整區塊
+with st.expander("⚙️ QR Code 與裝置時間參數設定", expanded=False):
     # 1. 對角線翻轉開關
     st.caption(f"**對角線翻轉 (Transpose):** {'開啟 (ON)' if st.session_state.qr_transpose else '關閉 (OFF)'}")
     t_col1, t_col2 = st.columns(2)
