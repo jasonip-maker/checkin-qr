@@ -74,9 +74,9 @@ if "start_date" not in st.session_state:
 if "init_wakeup_min" not in st.session_state:
     st.session_state.init_wakeup_min = 10
 if "sw_drift_ppm" not in st.session_state:
-    st.session_state.sw_drift_ppm = 22.26  # +22.26 ppm -> 快 15 分鐘 (:55 觸發)
+    st.session_state.sw_drift_ppm = 22.10  # +22.10 ppm -> 快 15 分鐘 (:55 觸發)
 if "hw_drift_ppm" not in st.session_state:
-    st.session_state.hw_drift_ppm = 17.06  # +17.06 ppm -> 快 690 秒 (:06:30 讀出)
+    st.session_state.hw_drift_ppm = 16.929  # +16.929 ppm -> 快 690 秒 (:06:30 讀出)
 if "qr_version" not in st.session_state:
     st.session_state.qr_version = 0
 if "qr_ec" not in st.session_state:
