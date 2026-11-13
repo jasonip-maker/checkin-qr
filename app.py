@@ -53,18 +53,18 @@ def calibrate_from_github(url: str, start_date: datetime.date, init_min: int):
     days = max(1, (first_obs.date() - start_date).days)
     total_sec = days * 86400
 
-    # 1. 軟體喚醒走快換算為 MHz
+    # 1. 軟體喚醒走快直接換算為 ppm
     sw_fast_min = (init_min - wakeup_min) % 60
-    sw_mhz = BASE_MHZ * (1 + (sw_fast_min * 60) / total_sec)
+    sw_ppm = ((sw_fast_min * 60) / total_sec) * 1e6
 
-    # 2. 硬體晶振走快換算為 ppm
+    # 2. 硬體晶振走快直接換算為 ppm
     wake_dt = first_obs.replace(minute=wakeup_min, second=0)
     if first_obs.minute < wakeup_min:
         wake_dt -= datetime.timedelta(hours=1)
     hw_fast_sec = (first_rtc - wake_dt).total_seconds()
     hw_ppm = (hw_fast_sec / total_sec) * 1e6
 
-    return round(sw_mhz, 6), round(hw_ppm, 2)
+    return round(sw_ppm, 2), round(hw_ppm, 2)
 
 
 # 初始化 Session State (預設 2025/08/01 起始，共 468 天至 2026/11/12)
@@ -74,10 +74,10 @@ if "start_date" not in st.session_state:
     st.session_state.start_date = datetime.date(2025, 8, 1)
 if "init_wakeup_min" not in st.session_state:
     st.session_state.init_wakeup_min = 10
-if "sw_freq_mhz" not in st.session_state:
-    st.session_state.sw_freq_mhz = 16.000356  # +22.26 ppm -> 快 15 分鐘 (:55 觸發)
+if "sw_drift_ppm" not in st.session_state:
+    st.session_state.sw_drift_ppm = 22.26  # +22.26 ppm -> 快 15 分鐘 (:55 觸發)
 if "hw_drift_ppm" not in st.session_state:
-    st.session_state.hw_drift_ppm = 17.06     # +17.06 ppm -> 快 690 秒 (:06:30 讀出)
+    st.session_state.hw_drift_ppm = 17.06  # +17.06 ppm -> 快 690 秒 (:06:30 讀出)
 if "qr_version" not in st.session_state:
     st.session_state.qr_version = 0
 if "qr_ec" not in st.session_state:
@@ -100,13 +100,13 @@ hkt = datetime.timezone(datetime.timedelta(hours=8), name="HKT")
 now_hkt = datetime.datetime.now(hkt)
 adjusted_now = now_hkt + datetime.timedelta(hours=st.session_state.hour_offset)
 
-# 1. 計算自起始日至今的精確運行秒數（使用完整時間差，避免跨午夜日期錯位）
+# 1. 計算自起始日至今的精確運行秒數
 start_dt = datetime.datetime.combine(st.session_state.start_date, datetime.time(0, 0), tzinfo=hkt)
 elapsed_total_sec = max(86400.0, (adjusted_now - start_dt).total_seconds())
 elapsed_days = int(elapsed_total_sec // 86400)
 
-# 2. 由軟體頻率 (MHz) 與硬體誤差 (ppm) 換算累積走快秒數
-sw_fast_sec = ((st.session_state.sw_freq_mhz - BASE_MHZ) / BASE_MHZ) * elapsed_total_sec
+# 2. 由軟體誤差 (ppm) 與硬體誤差 (ppm) 換算累積走快秒數
+sw_fast_sec = (st.session_state.sw_drift_ppm / 1e6) * elapsed_total_sec
 hw_rtc_fast_sec = (st.session_state.hw_drift_ppm / 1e6) * elapsed_total_sec
 
 # 3. 連續時間軸推算：先將真實時間推進至「軟體排程器時鐘」，找出最近一次 :10 分喚醒點
