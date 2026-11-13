@@ -6,17 +6,14 @@ import streamlit as st
 
 st.set_page_config(page_title="Check-in QR", page_icon="📱", layout="centered")
 
-st.markdown("""
-<style>
-#MainMenu {visibility: hidden;}
-footer {visibility: hidden;}
-header {visibility: hidden;}
-.block-container {padding-top: 2rem; text-align: center;}
-</style>
-""", unsafe_allow_html=True)
-
 # 廠方正向編碼矩陣 A (B 的逆矩陣)，輸入為 [年(YY), 月, 日, 時, 分, 秒]
-ENCODE_MATRIX = [,  # B0 = Y + D + m,  # B1 = M + H + s,  # B2 = D + H + s,  # B3 = H + m,  # B4 = m + s,  # B5 = Y + M + D + H + s
+ENCODE_MATRIX = [
+    [ 1,  1,  1,  0,  0,  0],
+    [ 0,  1,  0,  1,  0,  1],
+    [ 0,  0,  1,  1,  0,  1],
+    [ 0,  0,  0,  1,  1,  0],
+    [ 0,  0,  0,  0,  1,  1],
+    [ 1,  1,  1,  1,  0,  1]
 ]
 
 # 廠方伺服器逆向解碼矩陣 B (用於驗證輸出是否正確)
