@@ -193,6 +193,7 @@ hw_clock_now = adjusted_now + datetime.timedelta(seconds=hw_rtc_fast_sec)
 
 # 3. 軟體排程器計算現實世界的刷新時間
 sw_rel_fast_sec = (st.session_state.sw_rel_ppm / 1e6) * elapsed_total_sec
+total_fast_min = round((hw_rtc_fast_sec + sw_rel_fast_sec) / 60)
 sw_clock_now = hw_clock_now + datetime.timedelta(seconds=sw_rel_fast_sec)
 sw_last_wake = sw_clock_now.replace(
     minute=st.session_state.init_wakeup_min,
