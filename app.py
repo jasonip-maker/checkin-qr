@@ -57,61 +57,45 @@ def calibrate_from_github(url: str, start_date: datetime.date, init_min: int):
         hex_str = m_obj.group(2)
 
         try:
-            device_dt = decode_qr_payload_to_dt(hex_str)
+            dev_dt = decode_qr_payload_to_dt(hex_str)
         except Exception:
             continue
 
         records.append({
             "obs_dt": obs_dt,
-            "device_dt": device_dt,
+            "dev_dt": dev_dt,
         })
 
     if not records:
         st.warning("在 reference 檔案中找不到符合格式的紀錄。")
         return None
 
-    # Compute the drift for every record:
-    # device_dt - obs_dt = total drift for that moment
-    deltas = []
-    elapsed_secs = []
-    ref_start = min(r["obs_dt"] for r in records)
+    # 1) fit RTC readout offset in seconds
+    # device time - observed time gives total offset at each reference point
+    offsets_sec = []
+    for r in records:
+        device_dt = r["dev_dt"]
+        obs_dt = r["obs_dt"]
+        offsets_sec.append((device_dt - obs_dt).total_seconds())
 
+    rtc_offset_sec = round(sum(offsets_sec) / len(offsets_sec))
+
+    # 2) fit real wakeup offset in minutes
+    # compare observed actual wakeup time to expected init_wakeup_min
+    wakeup_offsets_min = []
     for r in records:
         obs_dt = r["obs_dt"]
-        device_dt = r["device_dt"]
+        expected = obs_dt.replace(minute=init_min, second=0, microsecond=0)
+        if obs_dt < expected:
+            expected -= datetime.timedelta(hours=1)
 
-        delta_sec = (device_dt - obs_dt).total_seconds()
-        elapsed_sec = max(1.0, (obs_dt - ref_start).total_seconds())
+        delta = (obs_dt - expected).total_seconds() / 60.0
+        wakeup_offsets_min.append(delta)
 
-        deltas.append(delta_sec)
-        elapsed_secs.append(elapsed_sec)
+    real_wakeup_offset_min = round(sum(wakeup_offsets_min) / len(wakeup_offsets_min))
 
-    # Fit a single global slope:
-    # delta_sec ~= slope * elapsed_sec + offset
-    # We only need the slope in seconds/second -> ppm
-    x_mean = sum(elapsed_secs) / len(elapsed_secs)
-    y_mean = sum(deltas) / len(deltas)
+    return rtc_offset_sec, real_wakeup_offset_min
 
-    numerator = sum(
-        (x - x_mean) * (y - y_mean)
-        for x, y in zip(elapsed_secs, deltas)
-    )
-    denominator = sum((x - x_mean) ** 2 for x in elapsed_secs)
-
-    if abs(denominator) < 1e-9:
-        drift_ppm = 0.0
-    else:
-        slope = numerator / denominator
-        drift_ppm = slope * 1e6
-
-    # If you specifically want the QR/device drift to be about 210 sec total
-    # across the modeled run, you can bound it to that target.
-    # This is intentionally small and stable.
-    if abs(drift_ppm) > 200:
-        # keep the app safe and do not overwrite with an invalid value
-        return None
-
-    return round(drift_ppm, 3), 0.0
 
 # 初始化 Session State (預設 2025/08/01 起始，共 468 天至 2026/11/12)
 if "hour_offset" not in st.session_state:
@@ -120,10 +104,19 @@ if "start_date" not in st.session_state:
     st.session_state.start_date = datetime.date(2025, 8, 1)
 if "init_wakeup_min" not in st.session_state:
     st.session_state.init_wakeup_min = 10
-if "sw_rel_ppm" not in st.session_state:
-    st.session_state.sw_rel_ppm = 5.185    # 第二層：軟體相對硬體再快 210 秒 (+5.185 ppm)
-if "hw_drift_ppm" not in st.session_state:
-    st.session_state.hw_drift_ppm = 17.037 # 第一層：硬體晶振本身快 690 秒 (+17.037 ppm)
+
+if "rtc_readout_offset_sec" not in st.session_state:
+    st.session_state.rtc_readout_offset_sec = 0
+
+if "real_wakeup_offset_min" not in st.session_state:
+    st.session_state.real_wakeup_offset_min = 0
+
+if "auto_rtc_offset_sec" not in st.session_state:
+    st.session_state.auto_rtc_offset_sec = 0
+
+if "auto_wakeup_offset_min" not in st.session_state:
+    st.session_state.auto_wakeup_offset_min = 0
+
 if "qr_version" not in st.session_state:
     st.session_state.qr_version = 0
 if "qr_ec" not in st.session_state:
