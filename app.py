@@ -283,7 +283,12 @@ with rtc_col1:
         st.session_state.rtc_readout_offset_sec += 1
         st.rerun()
 
-st.caption(f"**真實換碼偏移：** :{boundary_minute:02d}")
+switch_display = (
+    f"(:{boundary_minute:02d})"
+    if st.session_state.real_wakeup_offset_min < 0
+    else f":{boundary_minute:02d}"
+)
+st.caption(f"**真實換碼偏移：** {switch_display}")
 wake_col1, wake_col2 = st.columns(2)
 with wake_col1:
 
