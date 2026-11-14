@@ -144,47 +144,39 @@ start_dt = datetime.datetime.combine(st.session_state.start_date, datetime.time(
 elapsed_total_sec = max(86400.0, (adjusted_now - start_dt).total_seconds())
 elapsed_days = int(elapsed_total_sec // 86400)
 
-# 2. 第一層：先計算硬體晶振偏移，得出當下「裝置內部硬體 RTC 時鐘」
-hw_rtc_fast_sec = (st.session_state.hw_drift_ppm / 1e6) * elapsed_total_sec
-hw_clock_now = adjusted_now + datetime.timedelta(seconds=hw_rtc_fast_sec)
 
-# 3. 軟體排程器計算現實世界的刷新時間
-sw_rel_fast_sec = (st.session_state.sw_rel_ppm / 1e6) * elapsed_total_sec
-total_fast_min = round((hw_rtc_fast_sec + sw_rel_fast_sec) / 60)
-sw_clock_now = hw_clock_now + datetime.timedelta(seconds=sw_rel_fast_sec)
-sw_last_wake = sw_clock_now.replace(
-    minute=st.session_state.init_wakeup_min,
+# real wakeup time, user-adjustable via +1/-1 min
+wakeup_minute_setting = (
+    st.session_state.init_wakeup_min
+    + st.session_state.real_wakeup_offset_min
+    + st.session_state.auto_wakeup_offset_min
+) % 60
+
+real_wakeup_time = adjusted_now.replace(
+    minute=wakeup_minute_setting,
     second=0,
     microsecond=0,
 )
-if sw_clock_now < sw_last_wake:
-    sw_last_wake -= datetime.timedelta(hours=1)
+if adjusted_now < real_wakeup_time:
+    real_wakeup_time -= datetime.timedelta(hours=1)
 
-# actual_wakeup_time 保留軟體誤差，僅代表現實刷新時刻
-hw_wake_time = sw_last_wake - datetime.timedelta(seconds=sw_rel_fast_sec)
-actual_wakeup_time = hw_wake_time - datetime.timedelta(seconds=hw_rtc_fast_sec)
-wakeup_minute = actual_wakeup_time.minute
+wakeup_minute = real_wakeup_time.minute
 
-# effective_time 只依硬體喚醒時間計算，不使用軟體誤差
-hardware_wake = hw_clock_now.replace(
-    minute=st.session_state.init_wakeup_min,
-    second=0,
-    microsecond=0,
+# RTC readout time, user-adjustable via +1/-1 sec
+rtc_readout_time = real_wakeup_time + datetime.timedelta(
+    seconds=st.session_state.rtc_readout_offset_sec
+    + st.session_state.auto_rtc_offset_sec
 )
-if hw_clock_now < hardware_wake:
-    hardware_wake -= datetime.timedelta(hours=1)
 
-hardware_actual_wakeup = hardware_wake - datetime.timedelta(seconds=hw_rtc_fast_sec)
-days_drift = (
-    hardware_actual_wakeup.date() - datetime.date(2026, 11, 12)
-).days
+# keep overall QR drift target
+days_drift = (real_wakeup_time.date() - datetime.date(2026, 11, 12)).days
+rounded_rtc_readout = rtc_readout_time + datetime.timedelta(microseconds=500000)
+rounded_rtc_readout = rounded_rtc_readout.replace(microsecond=0)
 
-rounded_hw_wake = hardware_wake + datetime.timedelta(microseconds=500000)
-rounded_hw_wake = rounded_hw_wake.replace(microsecond=0)
+effective_time = rounded_rtc_readout - datetime.timedelta(
+    seconds=days_drift + 210
+)
 
-# 2025/08/01 00:10 -> 2026/11/12 00:06:30 = 210 秒
-# this is the total QR/device drift
-effective_time = rounded_hw_wake - datetime.timedelta(seconds=days_drift + 210)
 
 Y = effective_time.year % 100
 M = effective_time.month
