@@ -277,52 +277,46 @@ with btn_col3:
 
 st.divider()
     
-# 雙層時鐘漂移微調 (軟體 ppm / 硬體 ppm) 與 GitHub 自動校準
-hw_equiv_mhz = BASE_MHZ * (1 + st.session_state.hw_drift_ppm / 1e6)
-sw_equiv_mhz = BASE_MHZ * (1 + (st.session_state.hw_drift_ppm + st.session_state.sw_rel_ppm) / 1e6)
-st.caption(f"**運行 {elapsed_days} 天（自 {st.session_state.start_date} 起）：** 真實 `:{wakeup_minute:02d}` 換碼 ｜ RTC 讀出 `:{m:02d}:{s:02d}`")
 
-freq_col1, freq_col2 = st.columns(2)
-with freq_col1:
-    new_hw_ppm = st.number_input(
-        f"1. 硬體晶振誤差 ppm ({hw_equiv_mhz:.6f} MHz / 快{round(hw_rtc_fast_sec)}秒)",
-        min_value=-200.000, max_value=200.000,
-        value=float(st.session_state.hw_drift_ppm), step=0.001, format="%.3f",
-    )
-    if new_hw_ppm != st.session_state.hw_drift_ppm:
-        st.session_state.hw_drift_ppm = new_hw_ppm
+st.caption(
+    f"**RTC 讀出偏移：** {st.session_state.rtc_readout_offset_sec + st.session_state.auto_rtc_offset_sec:+d} 秒"
+)
+rtc_col1, rtc_col2 = st.columns(2)
+with rtc_col1:
+    if st.button("RTC 讀出 −1 秒", use_container_width=True):
+        st.session_state.rtc_readout_offset_sec -= 1
         st.rerun()
 
-with freq_col2:
-    new_sw_ppm = st.number_input(
-        f"2. 軟體相對誤差 ppm ({sw_equiv_mhz:.6f} MHz / 總快{total_fast_min}分)",
-        min_value=-200.000, max_value=200.000,
-        value=float(st.session_state.sw_rel_ppm), step=0.001, format="%.3f",
-    )
-    if new_sw_ppm != st.session_state.sw_rel_ppm:
-        st.session_state.sw_rel_ppm = new_sw_ppm
+with rtc_col2:
+    if st.button("RTC 讀出 +1 秒", use_container_width=True):
+        st.session_state.rtc_readout_offset_sec += 1
         st.rerun()
 
+st.caption(
+    f"**真實換碼偏移：** {st.session_state.real_wakeup_offset_min + st.session_state.auto_wakeup_offset_min:+d} 分鐘"
+)
+wake_col1, wake_col2 = st.columns(2)
+with wake_col1:
+    if st.button("真實換碼 −1 分鐘", use_container_width=True):
+        st.session_state.real_wakeup_offset_min -= 1
+        st.rerun()
 
-if st.button("📡 從 reference 自動反推並校準 ppm", use_container_width=True):
+with wake_col2:
+    if st.button("真實換碼 +1 分鐘", use_container_width=True):
+        st.session_state.real_wakeup_offset_min += 1
+        st.rerun()
+
+if st.button("📡 從 reference 自動校準 RTC / 換碼", use_container_width=True):
     res = calibrate_from_github(
         REF_URL,
         st.session_state.start_date,
         st.session_state.init_wakeup_min,
     )
-
-    if res is not None:
-        hw_ppm, sw_ppm = map(float, res)
-
-        if not (-200 <= hw_ppm <= 200 and -200 <= sw_ppm <= 200):
-            st.error(
-                f"校準值超出輸入範圍，未套用："
-                f"硬體 {hw_ppm:.3f} ppm、軟體 {sw_ppm:.3f} ppm。"
-            )
-        else:
-            st.session_state.hw_drift_ppm = hw_ppm
-            st.session_state.sw_rel_ppm = sw_ppm
-            st.rerun()
+    if res:
+        auto_rtc_offset_sec, auto_wakeup_offset_min = res
+        st.session_state.auto_rtc_offset_sec = auto_rtc_offset_sec
+        st.session_state.auto_wakeup_offset_min = auto_wakeup_offset_min
+        st.rerun()
 
 
 st.divider()
