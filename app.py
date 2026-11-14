@@ -146,35 +146,28 @@ elapsed_days = int(elapsed_total_sec // 86400)
 
 
 # real wakeup time, user-adjustable via +1/-1 min
-wakeup_minute_setting = (
+# The boundary only decides when the QR changes.
+# Manual and auto-calibrated wakeup offsets must not alter QR time-of-day.
+boundary_minute = (
     st.session_state.init_wakeup_min
     + st.session_state.real_wakeup_offset_min
     + st.session_state.auto_wakeup_offset_min
 ) % 60
 
-real_wakeup_time = adjusted_now.replace(
-    minute=wakeup_minute_setting,
-    second=0,
-    microsecond=0,
-)
-if adjusted_now < real_wakeup_time:
-    real_wakeup_time -= datetime.timedelta(hours=1)
+# Select the current QR hour slot.
+qr_hour = adjusted_now.replace(minute=0, second=0, microsecond=0)
+if adjusted_now.minute >= boundary_minute:
+    qr_hour += datetime.timedelta(hours=1)
 
-wakeup_minute = real_wakeup_time.minute
+wakeup_minute = boundary_minute
 
-# RTC readout time, user-adjustable via +1/-1 sec
-rtc_readout_time = real_wakeup_time + datetime.timedelta(
-    seconds=st.session_state.rtc_readout_offset_sec
-    + st.session_state.auto_rtc_offset_sec
-)
-
-# keep overall QR drift target
-days_drift = (real_wakeup_time.date() - datetime.date(2026, 11, 12)).days
-rounded_rtc_readout = rtc_readout_time + datetime.timedelta(microseconds=500000)
-rounded_rtc_readout = rounded_rtc_readout.replace(microsecond=0)
-
-effective_time = rounded_rtc_readout - datetime.timedelta(
-    seconds=days_drift + 210
+# QR/device time is independent of the wakeup-boundary adjustment.
+# Desired baseline: HH:06:27. RTC calibration/manual seconds may adjust it.
+effective_time = qr_hour.replace(minute=6, second=27) + datetime.timedelta(
+    seconds=(
+        st.session_state.rtc_readout_offset_sec
+        + st.session_state.auto_rtc_offset_sec
+    )
 )
 
 
