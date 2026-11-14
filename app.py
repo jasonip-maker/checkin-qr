@@ -224,14 +224,10 @@ days_drift = (
 
 rounded_hw_wake = hardware_wake + datetime.timedelta(microseconds=500000)
 rounded_hw_wake = rounded_hw_wake.replace(microsecond=0)
-effective_time = rounded_hw_wake - datetime.timedelta(
-    seconds=days_drift + 210
-)
 
-# 將硬體喚醒時刻四捨五入至最接近整秒
-rounded_hw_wake = hw_wake_time + datetime.timedelta(microseconds=500000)
-rounded_hw_wake = rounded_hw_wake.replace(microsecond=0)
-effective_time = rounded_hw_wake - datetime.timedelta(seconds=days_drift)
+# 2025/08/01 00:10 -> 2026/11/12 00:06:30 = 210 秒
+# this is the total QR/device drift
+effective_time = rounded_hw_wake - datetime.timedelta(seconds=days_drift + 210)
 
 Y = effective_time.year % 100
 M = effective_time.month
