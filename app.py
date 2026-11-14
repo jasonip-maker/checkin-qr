@@ -127,25 +127,30 @@ sw_last_wake = sw_clock_now.replace(
 if sw_clock_now < sw_last_wake:
     sw_last_wake -= datetime.timedelta(hours=1)
 
-# 軟體誤差只用來計算實際刷新時刻，供顯示使用
-software_wake_hw_time = sw_last_wake - datetime.timedelta(seconds=sw_rel_fast_sec)
-actual_wakeup_time = software_wake_hw_time - datetime.timedelta(seconds=hw_rtc_fast_sec)
+# actual_wakeup_time 保留軟體誤差，僅代表現實刷新時刻
+hw_wake_time = sw_last_wake - datetime.timedelta(seconds=sw_rel_fast_sec)
+actual_wakeup_time = hw_wake_time - datetime.timedelta(seconds=hw_rtc_fast_sec)
 wakeup_minute = actual_wakeup_time.minute
-total_fast_min = round((hw_rtc_fast_sec + sw_rel_fast_sec) / 60)
 
-# 4. effective_time 僅依硬體時鐘計算，不使用軟體誤差
-hw_wake_time = hw_clock_now.replace(
+# effective_time 只依硬體喚醒時間計算，不使用軟體誤差
+hardware_wake = hw_clock_now.replace(
     minute=st.session_state.init_wakeup_min,
     second=0,
     microsecond=0,
 )
-if hw_clock_now < hw_wake_time:
-    hw_wake_time -= datetime.timedelta(hours=1)
+if hw_clock_now < hardware_wake:
+    hardware_wake -= datetime.timedelta(hours=1)
 
-hardware_actual_wakeup_time = hw_wake_time - datetime.timedelta(seconds=hw_rtc_fast_sec)
+hardware_actual_wakeup = hardware_wake - datetime.timedelta(seconds=hw_rtc_fast_sec)
 days_drift = (
-    hardware_actual_wakeup_time.date() - datetime.date(2026, 11, 12)
+    hardware_actual_wakeup.date() - datetime.date(2026, 11, 12)
 ).days
+
+rounded_hw_wake = hardware_wake + datetime.timedelta(microseconds=500000)
+rounded_hw_wake = rounded_hw_wake.replace(microsecond=0)
+effective_time = rounded_hw_wake - datetime.timedelta(
+    seconds=days_drift + 210
+)
 
 # 將硬體喚醒時刻四捨五入至最接近整秒
 rounded_hw_wake = hw_wake_time + datetime.timedelta(microseconds=500000)
