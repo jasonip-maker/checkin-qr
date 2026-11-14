@@ -162,7 +162,7 @@ slot_start = adjusted_now.replace(minute=0, second=0, microsecond=0)
 # IMPORTANT:
 # positive offset = earlier switch
 # negative offset = later switch
-if adjusted_now.minute <= boundary_minute:
+if adjusted_now.minute >= boundary_minute:
     slot_start -= datetime.timedelta(hours=1)
 
 # QR encoded time should stay around HH:06:27
