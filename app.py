@@ -98,6 +98,7 @@ def calibrate_from_github(url: str, start_date: datetime.date, init_min: int):
 
 
 # 初始化 Session State (預設 2025/08/01 起始，共 468 天至 2026/11/12)
+
 if "hour_offset" not in st.session_state:
     st.session_state.hour_offset = 0
 if "start_date" not in st.session_state:
@@ -105,17 +106,17 @@ if "start_date" not in st.session_state:
 if "init_wakeup_min" not in st.session_state:
     st.session_state.init_wakeup_min = 10
 
-if "rtc_readout_offset_sec" not in st.session_state:
-    st.session_state.rtc_readout_offset_sec = 0
-
 if "real_wakeup_offset_min" not in st.session_state:
     st.session_state.real_wakeup_offset_min = -15
 
-if "auto_rtc_offset_sec" not in st.session_state:
-    st.session_state.auto_rtc_offset_sec = 0
-
 if "auto_wakeup_offset_min" not in st.session_state:
     st.session_state.auto_wakeup_offset_min = 0
+
+if "rtc_readout_offset_sec" not in st.session_state:
+    st.session_state.rtc_readout_offset_sec = 0
+
+if "auto_rtc_offset_sec" not in st.session_state:
+    st.session_state.auto_rtc_offset_sec = 0
 
 if "qr_version" not in st.session_state:
     st.session_state.qr_version = 0
@@ -148,19 +149,24 @@ elapsed_days = int(elapsed_total_sec // 86400)
 # real wakeup time, user-adjustable via +1/-1 min
 # The boundary only decides when the QR changes.
 # Manual and auto-calibrated wakeup offsets must not alter QR time-of-day.
+# boundary = initial baseline + manual + auto offset
 boundary_minute = (
     st.session_state.init_wakeup_min
     + st.session_state.real_wakeup_offset_min
     + st.session_state.auto_wakeup_offset_min
 ) % 60
 
-# Select the current QR hour slot.
-# Hour-slot switching only
-qr_hour = adjusted_now.replace(minute=0, second=0, microsecond=0)
-if adjusted_now.minute >= boundary_minute:
-    qr_hour += datetime.timedelta(hours=1)
+# current slot is based only on the current clock, not the QR encoded time
+slot_start = adjusted_now.replace(minute=0, second=0, microsecond=0)
 
-effective_time = qr_hour.replace(minute=6, second=27) + datetime.timedelta(
+# IMPORTANT:
+# positive offset = earlier switch
+# negative offset = later switch
+if adjusted_now.minute <= boundary_minute:
+    slot_start -= datetime.timedelta(hours=1)
+
+# QR encoded time should stay around HH:06:27
+effective_time = slot_start.replace(minute=6, second=27, microsecond=0) + datetime.timedelta(
     seconds=st.session_state.rtc_readout_offset_sec
     + st.session_state.auto_rtc_offset_sec
 )
@@ -271,28 +277,30 @@ st.caption(
 )
 rtc_col1, rtc_col2 = st.columns(2)
 with rtc_col1:
-    if st.button("RTC 讀出 −1 秒", use_container_width=True):
-        st.session_state.rtc_readout_offset_sec -= 1
-        st.rerun()
 
-with rtc_col2:
-    if st.button("RTC 讀出 +1 秒", use_container_width=True):
-        st.session_state.rtc_readout_offset_sec += 1
-        st.rerun()
+if st.button("RTC 讀出 −1 秒", use_container_width=True):
+    st.session_state.rtc_readout_offset_sec -= 1
+    st.rerun()
+
+if st.button("RTC 讀出 +1 秒", use_container_width=True):
+    st.session_state.rtc_readout_offset_sec += 1
+    st.rerun()
+
 
 st.caption(
     f"**真實換碼偏移：** {st.session_state.real_wakeup_offset_min + st.session_state.auto_wakeup_offset_min:+d} 分鐘"
 )
 wake_col1, wake_col2 = st.columns(2)
 with wake_col1:
-    if st.button("真實換碼 −1 分鐘", use_container_width=True):
-        st.session_state.real_wakeup_offset_min -= 1
-        st.rerun()
 
-with wake_col2:
-    if st.button("真實換碼 +1 分鐘", use_container_width=True):
-        st.session_state.real_wakeup_offset_min += 1
-        st.rerun()
+if st.button("真實換碼 −1 分鐘", use_container_width=True):
+    st.session_state.real_wakeup_offset_min -= 1
+    st.rerun()
+
+if st.button("真實換碼 +1 分鐘", use_container_width=True):
+    st.session_state.real_wakeup_offset_min += 1
+    st.rerun()
+
 
 if st.button("📡 從 reference 自動校準 RTC / 換碼", use_container_width=True):
     res = calibrate_from_github(
