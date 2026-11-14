@@ -109,7 +109,7 @@ if "rtc_readout_offset_sec" not in st.session_state:
     st.session_state.rtc_readout_offset_sec = 0
 
 if "real_wakeup_offset_min" not in st.session_state:
-    st.session_state.real_wakeup_offset_min = 0
+    st.session_state.real_wakeup_offset_min = -15
 
 if "auto_rtc_offset_sec" not in st.session_state:
     st.session_state.auto_rtc_offset_sec = 0
