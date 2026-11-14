@@ -278,13 +278,13 @@ st.caption(
 rtc_col1, rtc_col2 = st.columns(2)
 with rtc_col1:
 
-if st.button("RTC 讀出 −1 秒", use_container_width=True):
-    st.session_state.rtc_readout_offset_sec -= 1
-    st.rerun()
+    if st.button("RTC 讀出 −1 秒", use_container_width=True):
+         st.session_state.rtc_readout_offset_sec -= 1
+        st.rerun()
 
-if st.button("RTC 讀出 +1 秒", use_container_width=True):
-    st.session_state.rtc_readout_offset_sec += 1
-    st.rerun()
+    if st.button("RTC 讀出 +1 秒", use_container_width=True):
+         st.session_state.rtc_readout_offset_sec += 1
+        st.rerun()
 
 
 st.caption(
@@ -293,13 +293,13 @@ st.caption(
 wake_col1, wake_col2 = st.columns(2)
 with wake_col1:
 
-if st.button("真實換碼 −1 分鐘", use_container_width=True):
-    st.session_state.real_wakeup_offset_min -= 1
-    st.rerun()
+    if st.button("真實換碼 −1 分鐘", use_container_width=True):
+         st.session_state.real_wakeup_offset_min -= 1
+        st.rerun()
 
-if st.button("真實換碼 +1 分鐘", use_container_width=True):
-    st.session_state.real_wakeup_offset_min += 1
-    st.rerun()
+    if st.button("真實換碼 +1 分鐘", use_container_width=True):
+         st.session_state.real_wakeup_offset_min += 1
+        st.rerun()
 
 
 if st.button("📡 從 reference 自動校準 RTC / 換碼", use_container_width=True):
