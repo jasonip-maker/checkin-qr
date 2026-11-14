@@ -116,25 +116,41 @@ elapsed_days = int(elapsed_total_sec // 86400)
 hw_rtc_fast_sec = (st.session_state.hw_drift_ppm / 1e6) * elapsed_total_sec
 hw_clock_now = adjusted_now + datetime.timedelta(seconds=hw_rtc_fast_sec)
 
-# 3. 第二層：在硬體時脈基礎上，疊加軟體排程器相對誤差，找出最近一次 :10 喚醒點
+# 3. 軟體排程器計算現實世界的刷新時間
 sw_rel_fast_sec = (st.session_state.sw_rel_ppm / 1e6) * elapsed_total_sec
 sw_clock_now = hw_clock_now + datetime.timedelta(seconds=sw_rel_fast_sec)
-sw_last_wake = sw_clock_now.replace(minute=st.session_state.init_wakeup_min, second=0, microsecond=0)
+sw_last_wake = sw_clock_now.replace(
+    minute=st.session_state.init_wakeup_min,
+    second=0,
+    microsecond=0,
+)
 if sw_clock_now < sw_last_wake:
     sw_last_wake -= datetime.timedelta(hours=1)
 
-# 4. 還原喚醒當刻的硬體 RTC 讀數與真實世界觸發時刻
-hw_wake_time = sw_last_wake - datetime.timedelta(seconds=sw_rel_fast_sec)
-actual_wakeup_time = hw_wake_time - datetime.timedelta(seconds=hw_rtc_fast_sec)
+# 軟體誤差只用來計算實際刷新時刻，供顯示使用
+software_wake_hw_time = sw_last_wake - datetime.timedelta(seconds=sw_rel_fast_sec)
+actual_wakeup_time = software_wake_hw_time - datetime.timedelta(seconds=hw_rtc_fast_sec)
 wakeup_minute = actual_wakeup_time.minute
 total_fast_min = round((hw_rtc_fast_sec + sw_rel_fast_sec) / 60)
 
-days_drift = (actual_wakeup_time.date() - datetime.date(2026, 11, 12)).days
-# 將喚醒時刻的微秒四捨五入至最接近整秒，消除同日內 0.3 秒浮點截斷誤差
+# 4. effective_time 僅依硬體時鐘計算，不使用軟體誤差
+hw_wake_time = hw_clock_now.replace(
+    minute=st.session_state.init_wakeup_min,
+    second=0,
+    microsecond=0,
+)
+if hw_clock_now < hw_wake_time:
+    hw_wake_time -= datetime.timedelta(hours=1)
+
+hardware_actual_wakeup_time = hw_wake_time - datetime.timedelta(seconds=hw_rtc_fast_sec)
+days_drift = (
+    hardware_actual_wakeup_time.date() - datetime.date(2026, 11, 12)
+).days
+
+# 將硬體喚醒時刻四捨五入至最接近整秒
 rounded_hw_wake = hw_wake_time + datetime.timedelta(microseconds=500000)
 rounded_hw_wake = rounded_hw_wake.replace(microsecond=0)
 effective_time = rounded_hw_wake - datetime.timedelta(seconds=days_drift)
-
 
 Y = effective_time.year % 100
 M = effective_time.month
