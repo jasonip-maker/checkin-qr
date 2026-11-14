@@ -155,19 +155,14 @@ boundary_minute = (
 ) % 60
 
 # Select the current QR hour slot.
+# Hour-slot switching only
 qr_hour = adjusted_now.replace(minute=0, second=0, microsecond=0)
 if adjusted_now.minute >= boundary_minute:
     qr_hour += datetime.timedelta(hours=1)
 
-wakeup_minute = boundary_minute
-
-# QR/device time is independent of the wakeup-boundary adjustment.
-# Desired baseline: HH:06:27. RTC calibration/manual seconds may adjust it.
 effective_time = qr_hour.replace(minute=6, second=27) + datetime.timedelta(
-    seconds=(
-        st.session_state.rtc_readout_offset_sec
-        + st.session_state.auto_rtc_offset_sec
-    )
+    seconds=st.session_state.rtc_readout_offset_sec
+    + st.session_state.auto_rtc_offset_sec
 )
 
 
