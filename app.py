@@ -14,6 +14,28 @@ BASE_MHZ = 16.0
 LOCAL_REF_PATH = os.path.join(os.path.dirname(__file__), "reference")
 REF_URL = "https://githubusercontent.com"
 
+def decode_qr_payload_to_dt(hex_str: str):
+    # hex_str is the 12-char payload from the QR, e.g. "2C32330F2458"
+    if len(hex_str) != 12:
+        raise ValueError(f"invalid QR payload length: {hex_str}")
+
+    b0, b1, b2, b3, b4, b5 = (
+        int(hex_str[i:i+2], 16) for i in range(0, 12, 2)
+    )
+
+    # reverse of the current 6-byte encoding
+    dec_Y = -2*b0 - 3*b1 - b2 + b3 + b4 + 3*b5
+    dec_M =  2*b0 + 3*b1      - b3 - b4 - 2*b5
+    dec_D =  2*b0 + 2*b1 + b2 - b3 - b4 - 2*b5
+    dec_H =   -b0 -   b1      + b3      +   b5
+    dec_m =    b0 +   b1                -   b5
+    dec_s =   -b0 -   b1           + b4 +   b5
+
+    # the QR encodes a time that is already “device time”
+    # use the same 2000+year convention used in the app
+    return datetime.datetime(2000 + dec_Y, dec_M, dec_D, dec_H, dec_m, dec_s)
+
+
 def calibrate_from_github(url: str, start_date: datetime.date, init_min: int):
     try:
         if os.path.exists(LOCAL_REF_PATH):
@@ -28,51 +50,104 @@ def calibrate_from_github(url: str, start_date: datetime.date, init_min: int):
 
     records = []
     for line in lines:
-        m_obj = re.search(r"(\d{4}/\d{2}/\d{2}\s+\d{2}:\d{2}).*?@([0-9A-Fa-f]{12})", line)
-        if m_obj:
-            obs_dt = datetime.datetime.strptime(m_obj.group(1), "%Y/%m/%d %H:%M")
-            hex_str = m_obj.group(2)
-            b0, b1, b2, b3, b4, b5 = (int(hex_str[i:i+2], 16) for i in range(0, 12, 2))
-            dec_Y = -2*b0 - 3*b1 - b2 + b3 + b4 + 3*b5
-            dec_M =  2*b0 + 3*b1      - b3 - b4 - 2*b5
-            dec_D =  2*b0 + 2*b1 + b2 - b3 - b4 - 2*b5
-            dec_H =   -b0 -   b1      + b3      +   b5
-            dec_m =    b0 +   b1                -   b5
-            dec_s =   -b0 -   b1           + b4 +   b5
-            rtc_dt = datetime.datetime(2000 + dec_Y, dec_M, dec_D, dec_H, dec_m, dec_s)
-            records.append((obs_dt, rtc_dt))
+        # match: "YYYY/MM/DD HH:MM ... @HEXHEX..."
+        m_obj = re.search(
+            r"(\d{4}/\d{2}/\d{2}\s+\d{2}:\d{2}).*?@([0-9A-Fa-f]{12})",
+            line,
+        )
+        if not m_obj:
+            continue
+
+        obs_dt = datetime.datetime.strptime(m_obj.group(1), "%Y/%m/%d %H:%M")
+        hex_str = m_obj.group(2)
+        try:
+            dev_dt = decode_qr_payload_to_dt(hex_str)
+        except Exception:
+            continue
+
+        # keep the actual observed time and the decoded device time
+        records.append({
+            "obs_dt": obs_dt,
+            "dev_dt": dev_dt,
+        })
 
     if not records:
         st.warning("在 reference 檔案中找不到符合格式的紀錄。")
         return None
 
-    # 1. 偵測真實觸發分鐘（取 >=45 分中最接近整點的換碼邊界，即 :55）
-    obs_minutes = [obs.minute for obs, _ in records if obs.minute >= 45]
-    wakeup_min = min(obs_minutes) if obs_minutes else 55
+    # ------------------------------------------------------------
+    # 1) fit hardware drift from all reference data
+    #    residual = device_time - observed_time
+    #    should be approximately linear over elapsed time
+    # ------------------------------------------------------------
+    base_dt = datetime.datetime.combine(start_date, datetime.time(0, 0))
 
-    # 2. 優先挑選剛好在換碼邊界 (:55) 觀察到的紀錄，計算最精確的時間分母
-    boundary_recs = [(obs, rtc) for obs, rtc in records if obs.minute == wakeup_min]
-    target_obs, target_rtc = boundary_recs[0] if boundary_recs else records[0]
+    x = []
+    y = []
+    for rec in records:
+        obs_dt = rec["obs_dt"]
+        dev_dt = rec["dev_dt"]
 
-    wake_dt = target_obs.replace(minute=wakeup_min, second=0)
-    if target_obs.minute < wakeup_min:
-        wake_dt -= datetime.timedelta(hours=1)
+        # time since start date, in seconds
+        elapsed_sec = max(1.0, (obs_dt - base_dt).total_seconds())
 
-    # 3. 採用與主程式完全一致的「精確總秒數」作為分母（避免整天數誤差）
-    start_dt = datetime.datetime.combine(start_date, datetime.time(0, 0))
-    total_sec = max(86400.0, (wake_dt - start_dt).total_seconds())
+        # residual in seconds: if device is fast, decoded device time is ahead
+        resid_sec = (dev_dt - obs_dt).total_seconds()
 
-    # 4. 補償跨日微漂移後，計算第一層「硬體晶振誤差 ppm」
-    days_drift = (wake_dt.date() - datetime.date(2026, 11, 12)).days
-    hw_fast_sec = (target_rtc + datetime.timedelta(seconds=days_drift) - wake_dt).total_seconds()
-    hw_ppm = (hw_fast_sec / total_sec) * 1e6
+        x.append(elapsed_sec)
+        y.append(resid_sec)
 
-    # 5. 計算第二層「軟體排程器相對誤差 ppm」（總提前秒數扣除硬體走快秒數）
-    total_sw_fast_sec = ((init_min - wakeup_min) % 60) * 60
-    sw_rel_sec = total_sw_fast_sec - hw_fast_sec
-    sw_ppm = (sw_rel_sec / total_sec) * 1e6
+    # simple least-squares slope: resid = a * elapsed_sec + b
+    # estimate a = covariance(x,y) / variance(x)
+    x_mean = sum(x) / len(x)
+    y_mean = sum(y) / len(y)
+    num = sum((xi - x_mean) * (yi - y_mean) for xi, yi in zip(x, y))
+    den = sum((xi - x_mean) ** 2 for xi in x)
+    if abs(den) < 1e-9:
+        hw_ppm = 0.0
+    else:
+        slope_sec_per_sec = num / den
+        hw_ppm = (slope_sec_per_sec * 1e6)
 
-    return round(hw_ppm, 3), round(sw_ppm, 3)
+    # ------------------------------------------------------------
+    # 2) fit software refresh drift from all reference data
+    #    this should only affect when the refresh happens in real time
+    #    not the device's encoded time itself
+    # ------------------------------------------------------------
+    # For every reference observation, compute the expected real-time
+    # refresh minute from the device's observed minute.
+    # The app currently defines refresh boundary as init_min (default 10).
+    # Here we estimate the offset needed to make all observed refreshes align.
+    refresh_offsets = []
+    for rec in records:
+        obs_dt = rec["obs_dt"]
+        dev_dt = rec["dev_dt"]
+
+        # the device should be refreshing at its configured minute boundary (init_min)
+        # in real time, the drift is the difference between observed real time
+        # and the expected refresh time
+        expected_real_refresh = obs_dt.replace(minute=init_min, second=0, microsecond=0)
+        if obs_dt < expected_real_refresh:
+            expected_real_refresh -= datetime.timedelta(hours=1)
+
+        # difference between observed and expected at this point
+        # if negative, real refresh is early
+        real_drift_sec = (obs_dt - expected_real_refresh).total_seconds()
+
+        # convert to ppm using elapsed time from start_date
+        elapsed_sec = max(1.0, (obs_dt - base_dt).total_seconds())
+        refresh_offsets.append((real_drift_sec / elapsed_sec) * 1e6)
+
+    sw_ppm = sum(refresh_offsets) / len(refresh_offsets) if refresh_offsets else 0.0
+
+    # ------------------------------------------------------------
+    # 3) smallest required adjustment
+    #    keep values stable and avoid huge jerks
+    # ------------------------------------------------------------
+    hw_ppm = round(hw_ppm, 3)
+    sw_ppm = round(sw_ppm, 3)
+
+    return hw_ppm, sw_ppm
 
 # 初始化 Session State (預設 2025/08/01 起始，共 468 天至 2026/11/12)
 if "hour_offset" not in st.session_state:
