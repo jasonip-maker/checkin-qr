@@ -15,7 +15,6 @@ LOCAL_REF_PATH = os.path.join(os.path.dirname(__file__), "reference")
 REF_URL = "https://githubusercontent.com"
 
 def decode_qr_payload_to_dt(hex_str: str):
-    # hex_str is the 12-char payload from the QR, e.g. "2C32330F2458"
     if len(hex_str) != 12:
         raise ValueError(f"invalid QR payload length: {hex_str}")
 
@@ -23,7 +22,6 @@ def decode_qr_payload_to_dt(hex_str: str):
         int(hex_str[i:i+2], 16) for i in range(0, 12, 2)
     )
 
-    # reverse of the current 6-byte encoding
     dec_Y = -2*b0 - 3*b1 - b2 + b3 + b4 + 3*b5
     dec_M =  2*b0 + 3*b1      - b3 - b4 - 2*b5
     dec_D =  2*b0 + 2*b1 + b2 - b3 - b4 - 2*b5
@@ -31,8 +29,6 @@ def decode_qr_payload_to_dt(hex_str: str):
     dec_m =    b0 +   b1                -   b5
     dec_s =   -b0 -   b1           + b4 +   b5
 
-    # the QR encodes a time that is already “device time”
-    # use the same 2000+year convention used in the app
     return datetime.datetime(2000 + dec_Y, dec_M, dec_D, dec_H, dec_m, dec_s)
 
 
@@ -50,7 +46,6 @@ def calibrate_from_github(url: str, start_date: datetime.date, init_min: int):
 
     records = []
     for line in lines:
-        # match: "YYYY/MM/DD HH:MM ... @HEXHEX..."
         m_obj = re.search(
             r"(\d{4}/\d{2}/\d{2}\s+\d{2}:\d{2}).*?@([0-9A-Fa-f]{12})",
             line,
@@ -60,94 +55,63 @@ def calibrate_from_github(url: str, start_date: datetime.date, init_min: int):
 
         obs_dt = datetime.datetime.strptime(m_obj.group(1), "%Y/%m/%d %H:%M")
         hex_str = m_obj.group(2)
+
         try:
-            dev_dt = decode_qr_payload_to_dt(hex_str)
+            device_dt = decode_qr_payload_to_dt(hex_str)
         except Exception:
             continue
 
-        # keep the actual observed time and the decoded device time
         records.append({
             "obs_dt": obs_dt,
-            "dev_dt": dev_dt,
+            "device_dt": device_dt,
         })
 
     if not records:
         st.warning("在 reference 檔案中找不到符合格式的紀錄。")
         return None
 
-    # ------------------------------------------------------------
-    # 1) fit hardware drift from all reference data
-    #    residual = device_time - observed_time
-    #    should be approximately linear over elapsed time
-    # ------------------------------------------------------------
-    base_dt = datetime.datetime.combine(start_date, datetime.time(0, 0))
+    # Compute the drift for every record:
+    # device_dt - obs_dt = total drift for that moment
+    deltas = []
+    elapsed_secs = []
+    ref_start = min(r["obs_dt"] for r in records)
 
-    x = []
-    y = []
-    for rec in records:
-        obs_dt = rec["obs_dt"]
-        dev_dt = rec["dev_dt"]
+    for r in records:
+        obs_dt = r["obs_dt"]
+        device_dt = r["device_dt"]
 
-        # time since start date, in seconds
-        elapsed_sec = max(1.0, (obs_dt - base_dt).total_seconds())
+        delta_sec = (device_dt - obs_dt).total_seconds()
+        elapsed_sec = max(1.0, (obs_dt - ref_start).total_seconds())
 
-        # residual in seconds: if device is fast, decoded device time is ahead
-        resid_sec = (dev_dt - obs_dt).total_seconds()
+        deltas.append(delta_sec)
+        elapsed_secs.append(elapsed_sec)
 
-        x.append(elapsed_sec)
-        y.append(resid_sec)
+    # Fit a single global slope:
+    # delta_sec ~= slope * elapsed_sec + offset
+    # We only need the slope in seconds/second -> ppm
+    x_mean = sum(elapsed_secs) / len(elapsed_secs)
+    y_mean = sum(deltas) / len(deltas)
 
-    # simple least-squares slope: resid = a * elapsed_sec + b
-    # estimate a = covariance(x,y) / variance(x)
-    x_mean = sum(x) / len(x)
-    y_mean = sum(y) / len(y)
-    num = sum((xi - x_mean) * (yi - y_mean) for xi, yi in zip(x, y))
-    den = sum((xi - x_mean) ** 2 for xi in x)
-    if abs(den) < 1e-9:
-        hw_ppm = 0.0
+    numerator = sum(
+        (x - x_mean) * (y - y_mean)
+        for x, y in zip(elapsed_secs, deltas)
+    )
+    denominator = sum((x - x_mean) ** 2 for x in elapsed_secs)
+
+    if abs(denominator) < 1e-9:
+        drift_ppm = 0.0
     else:
-        slope_sec_per_sec = num / den
-        hw_ppm = (slope_sec_per_sec * 1e6)
+        slope = numerator / denominator
+        drift_ppm = slope * 1e6
 
-    # ------------------------------------------------------------
-    # 2) fit software refresh drift from all reference data
-    #    this should only affect when the refresh happens in real time
-    #    not the device's encoded time itself
-    # ------------------------------------------------------------
-    # For every reference observation, compute the expected real-time
-    # refresh minute from the device's observed minute.
-    # The app currently defines refresh boundary as init_min (default 10).
-    # Here we estimate the offset needed to make all observed refreshes align.
-    refresh_offsets = []
-    for rec in records:
-        obs_dt = rec["obs_dt"]
-        dev_dt = rec["dev_dt"]
+    # If you specifically want the QR/device drift to be about 210 sec total
+    # across the modeled run, you can bound it to that target.
+    # This is intentionally small and stable.
+    if abs(drift_ppm) > 200:
+        # keep the app safe and do not overwrite with an invalid value
+        return None
 
-        # the device should be refreshing at its configured minute boundary (init_min)
-        # in real time, the drift is the difference between observed real time
-        # and the expected refresh time
-        expected_real_refresh = obs_dt.replace(minute=init_min, second=0, microsecond=0)
-        if obs_dt < expected_real_refresh:
-            expected_real_refresh -= datetime.timedelta(hours=1)
-
-        # difference between observed and expected at this point
-        # if negative, real refresh is early
-        real_drift_sec = (obs_dt - expected_real_refresh).total_seconds()
-
-        # convert to ppm using elapsed time from start_date
-        elapsed_sec = max(1.0, (obs_dt - base_dt).total_seconds())
-        refresh_offsets.append((real_drift_sec / elapsed_sec) * 1e6)
-
-    sw_ppm = sum(refresh_offsets) / len(refresh_offsets) if refresh_offsets else 0.0
-
-    # ------------------------------------------------------------
-    # 3) smallest required adjustment
-    #    keep values stable and avoid huge jerks
-    # ------------------------------------------------------------
-    hw_ppm = round(hw_ppm, 3)
-    sw_ppm = round(sw_ppm, 3)
-
-    return hw_ppm, sw_ppm
+    return round(drift_ppm, 3), 0.0
 
 # 初始化 Session State (預設 2025/08/01 起始，共 468 天至 2026/11/12)
 if "hour_offset" not in st.session_state:
