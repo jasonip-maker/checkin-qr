@@ -318,11 +318,27 @@ with freq_col2:
         st.session_state.sw_rel_ppm = new_sw_ppm
         st.rerun()
 
+
 if st.button("📡 從 reference 自動反推並校準 ppm", use_container_width=True):
-    res = calibrate_from_github(REF_URL, st.session_state.start_date, st.session_state.init_wakeup_min)
-    if res:
-        st.session_state.hw_drift_ppm, st.session_state.sw_rel_ppm = res
-        st.rerun()
+    res = calibrate_from_github(
+        REF_URL,
+        st.session_state.start_date,
+        st.session_state.init_wakeup_min,
+    )
+
+    if res is not None:
+        hw_ppm, sw_ppm = map(float, res)
+
+        if not (-200 <= hw_ppm <= 200 and -200 <= sw_ppm <= 200):
+            st.error(
+                f"校準值超出輸入範圍，未套用："
+                f"硬體 {hw_ppm:.3f} ppm、軟體 {sw_ppm:.3f} ppm。"
+            )
+        else:
+            st.session_state.hw_drift_ppm = hw_ppm
+            st.session_state.sw_rel_ppm = sw_ppm
+            st.rerun()
+
 
 st.divider()
 
