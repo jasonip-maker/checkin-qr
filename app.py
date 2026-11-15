@@ -142,7 +142,7 @@ current_rtc_drift_sec = round(elapsed_days * fitted_drift)
 total_rtc_offset_sec = current_rtc_drift_sec + st.session_state.rtc_readout_offset_sec
 rtc_offset_min = total_rtc_offset_sec / 60.0
 
-# 3. 換碼邊界僅由天數與逆向速率決定（確保 2026/11/13 準確對應到 (:55)）
+# 3. 換碼邊界計算（納入天數逆向遞減與手動微調偏移）
 total_span_days = 469.5
 boundary_rate = -15.0 / total_span_days
 raw_boundary_exact = 10.0 + elapsed_days * boundary_rate + st.session_state.real_wakeup_offset_min
@@ -155,11 +155,16 @@ if rounded_boundary < 0:
 else:
     switch_display = f":{boundary_minute:02d}"
 
-# 4. 統一以當前時間的整點作為該時段起點（消除正數邊界造成的 Hour +1 誤判）
-slot_start = adjusted_now.replace(minute=0, second=0, microsecond=0)
+# 4. 根據真實換碼偏移（帶正負號的 rounded_boundary）決定當前精確的時段起點
+base_hour_slot = adjusted_now.replace(minute=0, second=0, microsecond=0)
 
-# 如果確實需要支援特定負數邊界（如 (:55) 跨越到前一小時尾端）的微調，可保留：
-# 但絕不讓正數偏移（:00 ~ :59）把時段無故往後推一個小時。
+# 候選槽位起點 = 當前整點 + rounded_boundary 分鐘
+candidate_start = base_hour_slot + datetime.timedelta(minutes=rounded_boundary)
+
+if adjusted_now < candidate_start:
+    slot_start = candidate_start - datetime.timedelta(hours=1)
+else:
+    slot_start = candidate_start
 
 # 重新以精確的 slot_start 更新 elapsed_days
 elapsed_days = max(0.0, (slot_start - start_dt).total_seconds() / 86400.0)
