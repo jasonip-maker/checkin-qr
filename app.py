@@ -166,16 +166,13 @@ boundary_minute = (
 if adjusted_now.minute >= boundary_minute:
     slot_start += datetime.timedelta(hours=1)
 
-# 計算自起始日起經過的天數
+# 1. 計算自起始日起經過的精確天數
 elapsed_days = max(0.0, (slot_start - start_dt).total_seconds() / 86400.0)
 
-# 依據 reference 擬合出來的 base_minute, base_second 與 drift_per_day 計算當前有效時間
-total_drift_sec = (
-    elapsed_days * fitted_drift
-    + st.session_state.rtc_readout_offset_sec
-    + st.session_state.auto_rtc_offset_sec
-)
+# 2. 僅計算晶振累積飄移秒數（不加入外部掃描 rtc_offset）
+total_drift_sec = elapsed_days * fitted_drift
 
+# 3. 結合 Reference 擬合出的 base_minute 與 drift 計算有效時間
 base_target_time = slot_start.replace(minute=fitted_base_min, second=int(fitted_base_sec), microsecond=0)
 effective_time = base_target_time + datetime.timedelta(seconds=total_drift_sec)
 
