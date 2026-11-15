@@ -43,9 +43,11 @@ def calibrate_from_github_cached(url: str, start_date: datetime.date, init_min: 
             req = urllib.request.urlopen(url, timeout=5)
             lines = req.read().decode("utf-8").splitlines()
     except Exception as e:
-        return 0, 0
+        return 0, 0, 10, 0.0, -0.45
 
     records = []
+    start_dt = datetime.datetime.combine(start_date, datetime.time(0, 0))
+
     for line in lines:
         m_obj = re.search(
             r"(\d{4}/\d{2}/\d{2}\s+\d{2}:\d{2}).*?@([0-9A-Fa-f]{12})",
@@ -62,38 +64,49 @@ def calibrate_from_github_cached(url: str, start_date: datetime.date, init_min: 
         except Exception:
             continue
 
-        records.append({
-            "obs_dt": obs_dt,
-            "dev_dt": dev_dt,
-        })
+        days = (obs_dt - start_dt).total_seconds() / 86400.0
+        sec_in_hour = dev_dt.minute * 60 + dev_dt.second
+        records.append({"days": days, "sec": sec_in_hour, "obs_dt": obs_dt, "dev_dt": dev_dt})
 
     if not records:
-        return 0, 0
+        return 0, 0, 10, 0.0, -0.45
 
     # 1) 計算 RTC 讀出時間偏移 (秒)
     offsets_sec = []
     for r in records:
-        device_dt = r["dev_dt"]
-        obs_dt = r["obs_dt"]
-        diff_sec = (device_dt.replace(year=obs_dt.year, month=obs_dt.month, day=obs_dt.day) - obs_dt).total_seconds()
+        diff_sec = (r["dev_dt"].replace(year=r["obs_dt"].year, month=r["obs_dt"].month, day=r["obs_dt"].day) - r["obs_dt"]).total_seconds()
         offsets_sec.append(diff_sec)
-
     rtc_offset_sec = round(sum(offsets_sec) / len(offsets_sec))
 
     # 2) 計算真實換碼偏移 (分鐘)
     wakeup_offsets_min = []
     for r in records:
-        obs_dt = r["obs_dt"]
-        expected = obs_dt.replace(minute=init_min, second=0, microsecond=0)
-        if obs_dt < expected:
+        expected = r["obs_dt"].replace(minute=init_min, second=0, microsecond=0)
+        if r["obs_dt"] < expected:
             expected -= datetime.timedelta(hours=1)
-
-        delta = (obs_dt - expected).total_seconds() / 60.0
+        delta = (r["obs_dt"] - expected).total_seconds() / 60.0
         wakeup_offsets_min.append(delta)
-
     real_wakeup_offset_min = round(sum(wakeup_offsets_min) / len(wakeup_offsets_min))
 
-    return rtc_offset_sec, real_wakeup_offset_min
+    # 3) 從 reference 自動擬合 base_minute, base_second 與 drift_rate (線性回歸)
+    n = len(records)
+    sum_x = sum(r["days"] for r in records)
+    sum_y = sum(r["sec"] for r in records)
+    sum_xy = sum(r["days"] * r["sec"] for r in records)
+    sum_xx = sum(r["days"] ** 2 for r in records)
+
+    denominator = (n * sum_xx - sum_x ** 2)
+    if abs(denominator) > 1e-5:
+        drift_per_day = (n * sum_xy - sum_x * sum_y) / denominator
+        intercept = (sum_y - drift_per_day * sum_x) / n
+    else:
+        drift_per_day = -0.45
+        intercept = records[0]["sec"]
+
+    base_minute = int(intercept // 60)
+    base_second = intercept % 60
+
+    return rtc_offset_sec, real_wakeup_offset_min, base_minute, base_second, drift_per_day
 
 
 # 初始化 Session State
@@ -110,8 +123,8 @@ if "real_wakeup_offset_min" not in st.session_state:
 if "rtc_readout_offset_sec" not in st.session_state:
     st.session_state.rtc_readout_offset_sec = 0
 
-# 啟動時自動從 reference 載入並校準自動偏移值
-auto_rtc, auto_wake = calibrate_from_github_cached(
+# 自動從 reference 載入並校準所有動態參數
+auto_rtc, auto_wake, fitted_base_min, fitted_base_sec, fitted_drift = calibrate_from_github_cached(
     REF_URL,
     st.session_state.start_date,
     st.session_state.init_wakeup_min,
@@ -142,7 +155,7 @@ now_hkt = datetime.datetime.now(hkt)
 adjusted_now = now_hkt + datetime.timedelta(hours=st.session_state.hour_offset)
 
 start_dt = datetime.datetime.combine(st.session_state.start_date, datetime.time(0, 0), tzinfo=hkt)
-elapsed_total_sec = max(86400.0, (adjusted_now - start_dt).total_seconds())
+slot_start = adjusted_now.replace(minute=0, second=0, microsecond=0)
 
 boundary_minute = (
     st.session_state.init_wakeup_min
@@ -150,17 +163,21 @@ boundary_minute = (
     + st.session_state.auto_wakeup_offset_min
 ) % 60
 
-slot_start = adjusted_now.replace(minute=0, second=0, microsecond=0)
-
 if adjusted_now.minute >= boundary_minute:
     slot_start += datetime.timedelta(hours=1)
 
-# 依據自動校準與 RTC 偏移量計算有效時間點
-total_rtc_offset = (
-    st.session_state.rtc_readout_offset_sec
+# 計算自起始日起經過的天數
+elapsed_days = max(0.0, (slot_start - start_dt).total_seconds() / 86400.0)
+
+# 依據 reference 擬合出來的 base_minute, base_second 與 drift_per_day 計算當前有效時間
+total_drift_sec = (
+    elapsed_days * fitted_drift
+    + st.session_state.rtc_readout_offset_sec
     + st.session_state.auto_rtc_offset_sec
 )
-effective_time = slot_start.replace(minute=6, second=30) + datetime.timedelta(seconds=total_rtc_offset)
+
+base_target_time = slot_start.replace(minute=fitted_base_min, second=int(fitted_base_sec), microsecond=0)
+effective_time = base_target_time + datetime.timedelta(seconds=total_drift_sec)
 
 Y = effective_time.year % 100
 M = effective_time.month
