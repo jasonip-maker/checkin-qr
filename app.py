@@ -177,20 +177,10 @@ elapsed_days = max(0.0, (slot_start - start_dt).total_seconds() / 86400.0)
 current_rtc_drift_sec = round(elapsed_days * fitted_drift)
 total_rtc_offset_sec = current_rtc_drift_sec + st.session_state.rtc_readout_offset_sec
 
-# 5. 計算直覺對應的有效時間
+# 5. 計算直覺對應的有效時間（正確使用 timedelta 累加，避免 replace 覆蓋小時）
 total_sec_in_hour = (10 * 60) + total_rtc_offset_sec
 
-calc_minute = int(total_sec_in_hour // 60)
-calc_second = int(total_sec_in_hour % 60)
-
-while calc_second < 0:
-    calc_minute -= 1
-    calc_second += 60
-while calc_second >= 60:
-    calc_minute += 1
-    calc_second -= 60
-
-effective_time = slot_start.replace(minute=calc_minute, second=calc_second, microsecond=0)
+effective_time = slot_start + datetime.timedelta(seconds=total_sec_in_hour)
 
 Y = effective_time.year % 100
 M = effective_time.month
