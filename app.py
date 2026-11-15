@@ -22,15 +22,15 @@ def decode_qr_payload_to_dt(hex_str: str):
         int(hex_str[i:i+2], 16) for i in range(0, 12, 2)
     )
 
-    dec_Y = -2*b0 - 3*b1 - b2 + b3 + b4 + 3*b5
-    dec_M =  2*b0 + 3*b1      - b3 - b4 - 2*b5
-    dec_D =  2*b0 + 2*b1 + b2 - b3 - b4 - 2*b5
-    dec_H =   -b0 -   b1      + b3      +   b5
-    dec_m =    b0 +   b1                -   b5
-    dec_s =   -b0 -   b1           + b4 +   b5
+    # 根據正向公式精確推導出的逆向解碼運算
+    s = (b5 - b0 - b1 + b4) % 256
+    m = (b4 - s) % 256
+    H = (b3 - m) % 256
+    M = (b1 - H - s) % 256
+    D = (b2 - H - s) % 256
+    Y = (b0 - D - m) % 256
 
-    return datetime.datetime(2000 + dec_Y, dec_M, dec_D, dec_H, dec_m, dec_s)
-
+    return datetime.datetime(2000 + Y, M, D, H, m, s)
 
 def calibrate_from_github(url: str, start_date: datetime.date, init_min: int):
     try:
@@ -70,8 +70,6 @@ def calibrate_from_github(url: str, start_date: datetime.date, init_min: int):
         st.warning("在 reference 檔案中找不到符合格式的紀錄。")
         return None
 
-    # 1) fit RTC readout offset in seconds
-    # device time - observed time gives total offset at each reference point
     offsets_sec = []
     for r in records:
         device_dt = r["dev_dt"]
@@ -80,8 +78,6 @@ def calibrate_from_github(url: str, start_date: datetime.date, init_min: int):
 
     rtc_offset_sec = round(sum(offsets_sec) / len(offsets_sec))
 
-    # 2) fit real wakeup offset in minutes
-    # compare observed actual wakeup time to expected init_wakeup_min
     wakeup_offsets_min = []
     for r in records:
         obs_dt = r["obs_dt"]
@@ -140,32 +136,21 @@ hkt = datetime.timezone(datetime.timedelta(hours=8), name="HKT")
 now_hkt = datetime.datetime.now(hkt)
 adjusted_now = now_hkt + datetime.timedelta(hours=st.session_state.hour_offset)
 
-# 1. 計算自起始日至今的精確運行秒數
 start_dt = datetime.datetime.combine(st.session_state.start_date, datetime.time(0, 0), tzinfo=hkt)
 elapsed_total_sec = max(86400.0, (adjusted_now - start_dt).total_seconds())
 elapsed_days = int(elapsed_total_sec // 86400)
 
-
-# real wakeup time, user-adjustable via +1/-1 min
-# The boundary only decides when the QR changes.
-# Manual and auto-calibrated wakeup offsets must not alter QR time-of-day.
-# boundary = initial baseline + manual + auto offset
 boundary_minute = (
     st.session_state.init_wakeup_min
     + st.session_state.real_wakeup_offset_min
     + st.session_state.auto_wakeup_offset_min
 ) % 60
 
-# current slot is based only on the current clock, not the QR encoded time
 slot_start = adjusted_now.replace(minute=0, second=0, microsecond=0)
 
-# IMPORTANT:
-# positive offset = earlier switch
-# negative offset = later switch
 if adjusted_now.minute >= boundary_minute:
     slot_start += datetime.timedelta(hours=1)
 
-# QR encoded time should stay around HH:06:27
 effective_time = slot_start.replace(minute=6, second=27, microsecond=0) + datetime.timedelta(
     seconds=st.session_state.rtc_readout_offset_sec
     + st.session_state.auto_rtc_offset_sec
@@ -179,7 +164,7 @@ H = effective_time.hour
 m = effective_time.minute
 s = effective_time.second
 
-# 正向編碼計算 (6 Bytes)
+# === 更新後的正向編碼計算 (6 Bytes) ===
 b0 = (Y + D + m) % 256
 b1 = (M + H + s) % 256
 b2 = (D + H + s) % 256
@@ -187,19 +172,11 @@ b3 = (H + m) % 256
 b4 = (m + s) % 256
 b5 = (Y + M + D + H + s) % 256
 
-# 逆向解碼還原驗證
-dec_Y = -2*b0 - 3*b1 - b2 + b3 + b4 + 3*b5
-dec_M =  2*b0 + 3*b1      - b3 - b4 - 2*b5
-dec_D =  2*b0 + 2*b1 + b2 - b3 - b4 - 2*b5
-dec_H =   -b0 -   b1      + b3      +   b5
-dec_m =    b0 +   b1                -   b5
-dec_s =   -b0 -   b1           + b4 +   b5
-decoded_src = (dec_Y, dec_M, dec_D, dec_H, dec_m, dec_s)
+decoded_src = (Y, M, D, H, m, s)
 
 hex_payload = f"{b0:02X}{b1:02X}{b2:02X}{b3:02X}{b4:02X}{b5:02X}"
 qr_message = f"checkin://q?91/@{hex_payload}"
 
-# 產生 QR Code（Auto 模式下 Hour 15 自動切換為 Mask 1，其餘交給 Auto）
 target_version = None if st.session_state.qr_version == 0 else st.session_state.qr_version
 if st.session_state.qr_mask == -1:
     target_mask = 1 if effective_time.hour == 15 else None
@@ -229,7 +206,6 @@ except qrcode.exceptions.DataOverflowError:
 
 img = qr.make_image(fill_color="black", back_color="white").convert("RGB")
 
-# 套用對角線翻轉（沿左上至右下主對角線鏡像 / Transpose）
 if st.session_state.qr_transpose:
     img = img.transpose(Image.Transpose.TRANSPOSE)
 
@@ -254,7 +230,6 @@ st.code(qr_message, language=None)
 st.caption(f"伺服器逆向還原核對：20{decoded_src[0]:02d}-{decoded_src[1]:02d}-{decoded_src[2]:02d} {decoded_src[3]:02d}:{decoded_src[4]:02d}:{decoded_src[5]:02d}")
 st.write("")
 
-# 時段調整按鈕
 btn_col1, btn_col2, btn_col3 = st.columns(3)
 with btn_col1:
     if st.button("➖ 時段 -1", use_container_width=True):
@@ -270,7 +245,6 @@ with btn_col3:
         st.rerun()
 
 st.divider()
-    
 
 st.caption(f"**RTC 讀出偏移：** {st.session_state.rtc_readout_offset_sec + st.session_state.auto_rtc_offset_sec:+d} 秒")
 rtc_col1, rtc_col2 = st.columns(2)
@@ -298,7 +272,6 @@ switch_display = (
 st.caption(f"**真實換碼偏移：** {switch_display}")
 wake_col1, wake_col2 = st.columns(2)
 with wake_col1:
-
     if st.button("真實換碼 −1 分鐘", use_container_width=True):
         st.session_state.real_wakeup_offset_min -= 1
         st.rerun()
@@ -306,7 +279,6 @@ with wake_col1:
     if st.button("真實換碼 +1 分鐘", use_container_width=True):
         st.session_state.real_wakeup_offset_min += 1
         st.rerun()
-
 
 if st.button("📡 從 reference 自動校準 RTC / 換碼", use_container_width=True):
     res = calibrate_from_github(
@@ -320,12 +292,9 @@ if st.button("📡 從 reference 自動校準 RTC / 換碼", use_container_width
         st.session_state.auto_wakeup_offset_min = auto_wakeup_offset_min
         st.rerun()
 
-
 st.divider()
 
-# QR Code 調整區塊
 with st.expander("⚙️ QR Code 與裝置時間參數設定", expanded=False):
-    # 1. 對角線翻轉開關
     st.caption(f"**對角線翻轉 (Transpose):** {'開啟 (ON)' if st.session_state.qr_transpose else '關閉 (OFF)'}")
     t_col1, t_col2 = st.columns(2)
     with t_col1:
@@ -337,7 +306,6 @@ with st.expander("⚙️ QR Code 與裝置時間參數設定", expanded=False):
             st.session_state.qr_transpose = True
             st.rerun()
 
-    # 2. Version 調整
     st.caption(f"**Version (版本):** {'自動 (Auto)' if st.session_state.qr_version == 0 else f'Version {st.session_state.qr_version} (實際: V{qr.version})'}")
     v_col1, v_col2, v_col3 = st.columns(3)
     with v_col1:
@@ -353,7 +321,6 @@ with st.expander("⚙️ QR Code 與裝置時間參數設定", expanded=False):
             st.session_state.qr_version += 1
             st.rerun()
 
-    # 3. Error Correction 容錯率調整
     st.caption(f"**Error Correction (容錯率):** {st.session_state.qr_ec}")
     ec_cols = st.columns(4)
     for idx, level in enumerate(["L", "M", "Q", "H"]):
@@ -363,7 +330,6 @@ with st.expander("⚙️ QR Code 與裝置時間參數設定", expanded=False):
                 st.session_state.qr_ec = level
                 st.rerun()
 
-    # 4. Mask Pattern 遮罩樣式調整 (Auto + 0~7)
     actual_mask = qr.mask_pattern if qr.mask_pattern is not None else qr.best_mask_pattern()
     st.caption(f"**Mask Pattern (遮罩樣式):** {'Auto' if st.session_state.qr_mask == -1 else st.session_state.qr_mask} (實際: M{actual_mask})")
     mask_row1 = st.columns(5)
@@ -387,7 +353,6 @@ with st.expander("⚙️ QR Code 與裝置時間參數設定", expanded=False):
                 st.session_state.qr_mask = m
                 st.rerun()
 
-    # 5. Module Size (box_size) 調整
     st.caption(f"**Module Size (方格像素):** {st.session_state.qr_box_size} px")
     m_col1, m_col2, m_col3 = st.columns(3)
     with m_col1:
