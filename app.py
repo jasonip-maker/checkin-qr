@@ -142,13 +142,12 @@ current_rtc_drift_sec = round(elapsed_days * fitted_drift)
 total_rtc_offset_sec = current_rtc_drift_sec + st.session_state.rtc_readout_offset_sec
 rtc_offset_min = total_rtc_offset_sec / 60.0
 
-# 3. 動態逆向換碼邊界（從 2025/08/01 的 :10 開始逐日倒退，並納入 RTC 偏移）
+# 3. 換碼邊界僅由天數與逆向速率決定（確保 2026/11/13 準確對應到 (:55)）
 total_span_days = 469.5
 boundary_rate = -15.0 / total_span_days
-raw_boundary_exact = 10.0 + elapsed_days * boundary_rate
-adjusted_boundary_exact = raw_boundary_exact + rtc_offset_min + st.session_state.real_wakeup_offset_min
+raw_boundary_exact = 10.0 + elapsed_days * boundary_rate + st.session_state.real_wakeup_offset_min
 
-rounded_boundary = round(adjusted_boundary_exact)
+rounded_boundary = round(raw_boundary_exact)
 boundary_minute = rounded_boundary % 60
 
 if rounded_boundary < 0:
