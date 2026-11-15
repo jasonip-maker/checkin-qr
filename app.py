@@ -133,19 +133,18 @@ adjusted_now = now_hkt + datetime.timedelta(hours=st.session_state.hour_offset)
 
 start_dt = datetime.datetime.combine(st.session_state.start_date, datetime.time(0, 0), tzinfo=hkt)
 
-# 1. 先定義 temp_slot_start 與計算經過天數
-temp_slot_start = adjusted_now.replace(minute=0, second=0, microsecond=0)
-elapsed_days = max(0.0, (temp_slot_start - start_dt).total_seconds() / 86400.0)
+# 1. 計算自起始日起到「當前實際時間」經過的天數（固定基準，不受槽位切換影響）
+elapsed_days_now = max(0.0, (adjusted_now - start_dt).total_seconds() / 86400.0)
 
-# 2. 計算累積 RTC 讀出偏移秒數與分鐘
-current_rtc_drift_sec = round(elapsed_days * fitted_drift)
+# 2. 獨立計算 RTC 累積飄移與讀出偏移秒數
+current_rtc_drift_sec = round(elapsed_days_now * fitted_drift)
 total_rtc_offset_sec = current_rtc_drift_sec + st.session_state.rtc_readout_offset_sec
 rtc_offset_min = total_rtc_offset_sec / 60.0
 
-# 3. 換碼邊界計算（納入天數逆向遞減與手動微調偏移）
+# 3. 換碼邊界與槽位起點計算（使用獨立的 elapsed_days_now）
 total_span_days = 469.5
 boundary_rate = -15.0 / total_span_days
-raw_boundary_exact = 10.0 + elapsed_days * boundary_rate + st.session_state.real_wakeup_offset_min
+raw_boundary_exact = 10.0 + elapsed_days_now * boundary_rate + st.session_state.real_wakeup_offset_min
 
 rounded_boundary = round(raw_boundary_exact)
 boundary_minute = rounded_boundary % 60
@@ -155,22 +154,17 @@ if rounded_boundary < 0:
 else:
     switch_display = f":{boundary_minute:02d}"
 
-# 4. 根據真實換碼偏移（帶正負號的 rounded_boundary）決定當前精確的時段起點
+# 4. 計算當前時間所處的時段起點 slot_start
 base_hour_slot = adjusted_now.replace(minute=0, second=0, microsecond=0)
-
-# 當前小時的槽位起點
 start_current = base_hour_slot + datetime.timedelta(minutes=rounded_boundary)
-# 下一小時的槽位起點
 start_next = base_hour_slot + datetime.timedelta(hours=1, minutes=rounded_boundary)
-# 上一小時的槽位起點
-start_prev = base_hour_slot - datetime.timedelta(hours=1, minutes=rounded_boundary) if rounded_boundary < 0 else base_hour_slot - datetime.timedelta(hours=1) + datetime.timedelta(minutes=rounded_boundary)
 
 if adjusted_now >= start_next:
     slot_start = start_next
 elif adjusted_now >= start_current:
     slot_start = start_current
 else:
-    slot_start = base_hour_slot - datetime.timedelta(hours=1) + datetime.timedelta(minutes=rounded_boundary)
+    slot_start = base_hour_slot - datetime.timedelta(hours=1, minutes=rounded_boundary) if rounded_boundary < 0 else base_hour_slot - datetime.timedelta(hours=1, minutes=rounded_boundary)
 
 # 重新以精確的 slot_start 更新 elapsed_days
 elapsed_days = max(0.0, (slot_start - start_dt).total_seconds() / 86400.0)
