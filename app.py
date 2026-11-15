@@ -133,18 +133,19 @@ adjusted_now = now_hkt + datetime.timedelta(hours=st.session_state.hour_offset)
 
 start_dt = datetime.datetime.combine(st.session_state.start_date, datetime.time(0, 0), tzinfo=hkt)
 
-# 1. 計算自起始日起到「當前實際時間」經過的天數（固定基準，不受槽位切換影響）
-elapsed_days_now = max(0.0, (adjusted_now - start_dt).total_seconds() / 86400.0)
+# 1. 先定義 temp_slot_start 與計算經過天數
+temp_slot_start = adjusted_now.replace(minute=0, second=0, microsecond=0)
+elapsed_days = max(0.0, (temp_slot_start - start_dt).total_seconds() / 86400.0)
 
-# 2. 獨立計算 RTC 累積飄移與讀出偏移秒數
-current_rtc_drift_sec = round(elapsed_days_now * fitted_drift)
+# 2. 計算累積 RTC 讀出偏移秒數與分鐘
+current_rtc_drift_sec = round(elapsed_days * fitted_drift)
 total_rtc_offset_sec = current_rtc_drift_sec + st.session_state.rtc_readout_offset_sec
 rtc_offset_min = total_rtc_offset_sec / 60.0
 
-# 3. 換碼邊界與槽位起點計算（使用獨立的 elapsed_days_now）
+# 3. 換碼邊界僅由天數與逆向速率決定（確保 2026/11/13 準確對應到 (:55)）
 total_span_days = 469.5
 boundary_rate = -15.0 / total_span_days
-raw_boundary_exact = 10.0 + elapsed_days_now * boundary_rate + st.session_state.real_wakeup_offset_min
+raw_boundary_exact = 10.0 + elapsed_days * boundary_rate + st.session_state.real_wakeup_offset_min
 
 rounded_boundary = round(raw_boundary_exact)
 boundary_minute = rounded_boundary % 60
@@ -154,27 +155,39 @@ if rounded_boundary < 0:
 else:
     switch_display = f":{boundary_minute:02d}"
 
-# 4. 計算當前時間所處的時段起點 slot_start
+# 4. 根據動態換碼邊界決定當前時段起點
+# 4.1. 先算出當前小時的基本整點
 base_hour_slot = adjusted_now.replace(minute=0, second=0, microsecond=0)
-start_current = base_hour_slot + datetime.timedelta(minutes=rounded_boundary)
-start_next = base_hour_slot + datetime.timedelta(hours=1, minutes=rounded_boundary)
 
-if adjusted_now >= start_next:
-    slot_start = start_next
-elif adjusted_now >= start_current:
-    slot_start = start_current
+# 4.2. 計算當前小時的「絕對換碼時間點 (Boundary DateTime)」
+# boundary_minute 可以是負數或正常 0~59 分鐘
+boundary_dt = base_hour_slot + datetime.timedelta(minutes=boundary_minute)
+
+# 4.3. 直接以絕對時間點比較：當前時間若已達到或超過換碼點，則進入下一個小時時段
+if adjusted_now >= boundary_dt:
+    slot_start = base_hour_slot + datetime.timedelta(hours=1)
 else:
-    slot_start = base_hour_slot - datetime.timedelta(hours=1, minutes=rounded_boundary) if rounded_boundary < 0 else base_hour_slot - datetime.timedelta(hours=1, minutes=rounded_boundary)
+    slot_start = base_hour_slot
 
 # 重新以精確的 slot_start 更新 elapsed_days
 elapsed_days = max(0.0, (slot_start - start_dt).total_seconds() / 86400.0)
 current_rtc_drift_sec = round(elapsed_days * fitted_drift)
 total_rtc_offset_sec = current_rtc_drift_sec + st.session_state.rtc_readout_offset_sec
 
-# 5. 計算直覺對應的有效時間（正確使用 timedelta 累加，避免 replace 覆蓋小時）
+# 5. 計算直覺對應的有效時間
 total_sec_in_hour = (10 * 60) + total_rtc_offset_sec
 
-effective_time = slot_start + datetime.timedelta(seconds=total_sec_in_hour)
+calc_minute = int(total_sec_in_hour // 60)
+calc_second = int(total_sec_in_hour % 60)
+
+while calc_second < 0:
+    calc_minute -= 1
+    calc_second += 60
+while calc_second >= 60:
+    calc_minute += 1
+    calc_second -= 60
+
+effective_time = slot_start.replace(minute=calc_minute, second=calc_second, microsecond=0)
 
 Y = effective_time.year % 100
 M = effective_time.month
@@ -242,7 +255,7 @@ st.caption(f"有效日期時段：{effective_time.strftime('%Y/%m/%d')} Hour {ef
 
 col1, col2, col3 = st.columns([1, 4, 1])
 with col2:
-    st.image(buf.getvalue(), use_container_width=False)
+    st.image(buf.getvalue(), use_container_width=True)
 
 st.markdown(f'<a href="{qr_message}" class="uri-link">🔗 {qr_message}</a>', unsafe_allow_html=True)
 st.code(qr_message, language=None)
@@ -251,15 +264,15 @@ st.write("")
 
 btn_col1, btn_col2, btn_col3 = st.columns(3)
 with btn_col1:
-    if st.button("➖ 時段 -1", use_container_width=False):
+    if st.button("➖ 時段 -1", use_container_width=True):
         st.session_state.hour_offset -= 1
         st.rerun()
 with btn_col2:
-    if st.button("🔄 刷新/重置", use_container_width=False):
+    if st.button("🔄 刷新/重置", use_container_width=True):
         st.session_state.hour_offset = 0
         st.rerun()
 with btn_col3:
-    if st.button("➕ 時段 +1", use_container_width=False):
+    if st.button("➕ 時段 +1", use_container_width=True):
         st.session_state.hour_offset += 1
         st.rerun()
 
@@ -268,22 +281,22 @@ st.divider()
 st.caption(f"**RTC 讀出偏移：** {total_rtc_offset_sec:+d} 秒 (自動校準)")
 rtc_col1, rtc_col2 = st.columns(2)
 with rtc_col1:
-    if st.button("RTC 讀出 −1 秒", use_container_width=False):
+    if st.button("RTC 讀出 −1 秒", use_container_width=True):
         st.session_state.rtc_readout_offset_sec -= 1
         st.rerun()
 
-    if st.button("RTC 讀出 +1 秒", use_container_width=False):
+    if st.button("RTC 讀出 +1 秒", use_container_width=True):
         st.session_state.rtc_readout_offset_sec += 1
         st.rerun()
 
 st.caption(f"**真實換碼偏移：** {switch_display} (自動校準)")
 wake_col1, wake_col2 = st.columns(2)
 with wake_col1:
-    if st.button("真實換碼 −1 分鐘", use_container_width=False):
+    if st.button("真實換碼 −1 分鐘", use_container_width=True):
         st.session_state.real_wakeup_offset_min -= 1
         st.rerun()
 
-    if st.button("真實換碼 +1 分鐘", use_container_width=False):
+    if st.button("真實換碼 +1 分鐘", use_container_width=True):
         st.session_state.real_wakeup_offset_min += 1
         st.rerun()
 
@@ -293,26 +306,26 @@ with st.expander("⚙️ QR Code 與裝置時間參數設定", expanded=False):
     st.caption(f"**對角線翻轉 (Transpose):** {'開啟 (ON)' if st.session_state.qr_transpose else '關閉 (OFF)'}")
     t_col1, t_col2 = st.columns(2)
     with t_col1:
-        if st.button("正常方向", key="trans_off", type="secondary" if st.session_state.qr_transpose else "primary", use_container_width=False):
+        if st.button("正常方向", key="trans_off", type="secondary" if st.session_state.qr_transpose else "primary", use_container_width=True):
             st.session_state.qr_transpose = False
             st.rerun()
     with t_col2:
-        if st.button("🔄 對角線翻轉", key="trans_on", type="primary" if st.session_state.qr_transpose else "secondary", use_container_width=False):
+        if st.button("🔄 對角線翻轉", key="trans_on", type="primary" if st.session_state.qr_transpose else "secondary", use_container_width=True):
             st.session_state.qr_transpose = True
             st.rerun()
 
     st.caption(f"**Version (版本):** {'自動 (Auto)' if st.session_state.qr_version == 0 else f'Version {st.session_state.qr_version} (實際: V{qr.version})'}")
     v_col1, v_col2, v_col3 = st.columns(3)
     with v_col1:
-        if st.button("➖ Ver -1", use_container_width=False, disabled=(st.session_state.qr_version <= 0)):
+        if st.button("➖ Ver -1", use_container_width=True, disabled=(st.session_state.qr_version <= 0)):
             st.session_state.qr_version -= 1
             st.rerun()
     with v_col2:
-        if st.button("Auto (V0)", use_container_width=False):
+        if st.button("Auto (V0)", use_container_width=True):
             st.session_state.qr_version = 0
             st.rerun()
     with v_col3:
-        if st.button("➕ Ver +1", use_container_width=False, disabled=(st.session_state.qr_version >= 10)):
+        if st.button("➕ Ver +1", use_container_width=True, disabled=(st.session_state.qr_version >= 10)):
             st.session_state.qr_version += 1
             st.rerun()
 
@@ -321,7 +334,7 @@ with st.expander("⚙️ QR Code 與裝置時間參數設定", expanded=False):
     for idx, level in enumerate(["L", "M", "Q", "H"]):
         with ec_cols[idx]:
             btn_type = "primary" if st.session_state.qr_ec == level else "secondary"
-            if st.button(f"{level}", key=f"ec_{level}", type=btn_type, use_container_width=False):
+            if st.button(f"{level}", key=f"ec_{level}", type=btn_type, use_container_width=True):
                 st.session_state.qr_ec = level
                 st.rerun()
 
@@ -330,13 +343,13 @@ with st.expander("⚙️ QR Code 與裝置時間參數設定", expanded=False):
     mask_row1 = st.columns(5)
     with mask_row1[0]:
         btn_type = "primary" if st.session_state.qr_mask == -1 else "secondary"
-        if st.button("Auto", key="mask_auto", type=btn_type, use_container_width=False):
+        if st.button("Auto", key="mask_auto", type=btn_type, use_container_width=True):
             st.session_state.qr_mask = -1
             st.rerun()
     for m in range(4):
         with mask_row1[m + 1]:
             btn_type = "primary" if st.session_state.qr_mask == m else "secondary"
-            if st.button(f"{m}", key=f"mask_{m}", type=btn_type, use_container_width=False):
+            if st.button(f"{m}", key=f"mask_{m}", type=btn_type, use_container_width=True):
                 st.session_state.qr_mask = m
                 st.rerun()
 
@@ -344,21 +357,21 @@ with st.expander("⚙️ QR Code 與裝置時間參數設定", expanded=False):
     for m in range(4, 8):
         with mask_row2[m - 4]:
             btn_type = "primary" if st.session_state.qr_mask == m else "secondary"
-            if st.button(f"{m}", key=f"mask_{m}", type=btn_type, use_container_width=False):
+            if st.button(f"{m}", key=f"mask_{m}", type=btn_type, use_container_width=True):
                 st.session_state.qr_mask = m
                 st.rerun()
 
     st.caption(f"**Module Size (方格像素):** {st.session_state.qr_box_size} px")
     m_col1, m_col2, m_col3 = st.columns(3)
     with m_col1:
-        if st.button("➖ Size -2", use_container_width=False, disabled=(st.session_state.qr_box_size <= 4)):
+        if st.button("➖ Size -2", use_container_width=True, disabled=(st.session_state.qr_box_size <= 4)):
             st.session_state.qr_box_size -= 2
             st.rerun()
     with m_col2:
-        if st.button("預設 (24px)", use_container_width=False):
+        if st.button("預設 (24px)", use_container_width=True):
             st.session_state.qr_box_size = 24
             st.rerun()
     with m_col3:
-        if st.button("➕ Size +2", use_container_width=False, disabled=(st.session_state.qr_box_size >= 24)):
+        if st.button("➕ Size +2", use_container_width=True, disabled=(st.session_state.qr_box_size >= 24)):
             st.session_state.qr_box_size += 2
             st.rerun()
