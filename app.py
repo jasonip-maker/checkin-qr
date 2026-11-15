@@ -268,7 +268,10 @@ with btn_col3:
 
 st.divider()
 
-st.caption(f"**RTC 讀出偏移：** {st.session_state.rtc_readout_offset_sec + st.session_state.auto_rtc_offset_sec:+d} 秒 (自動校準)")
+# 自動計算當前累積的 RTC 讀出偏移秒數（即天數 × 每日飄移率）
+current_rtc_drift_sec = round(elapsed_days * fitted_drift)
+
+st.caption(f"**RTC 讀出偏移：** {current_rtc_drift_sec + st.session_state.rtc_readout_offset_sec:+d} 秒 (自動校準)")
 rtc_col1, rtc_col2 = st.columns(2)
 with rtc_col1:
     if st.button("RTC 讀出 −1 秒", use_container_width=True):
