@@ -172,9 +172,16 @@ elapsed_days = max(0.0, (slot_start - start_dt).total_seconds() / 86400.0)
 # 2. 僅計算晶振累積飄移秒數（不加入外部掃描 rtc_offset）
 total_drift_sec = elapsed_days * fitted_drift
 
-# 3. 結合 Reference 擬合出的 base_minute 與 drift 計算有效時間
-base_target_time = slot_start.replace(minute=fitted_base_min, second=int(fitted_base_sec), microsecond=0)
-effective_time = base_target_time + datetime.timedelta(seconds=total_drift_sec)
+# 3. 結合 Reference 擬合出的 base_minute 與 drift 計算有效時間（秒數改用 round 四捨五入）
+total_sec_in_hour = (fitted_base_min * 60) + fitted_base_sec + elapsed_days * fitted_drift
+calc_minute = int(total_sec_in_hour // 60)
+calc_second = round(total_sec_in_hour % 60)
+
+if calc_second >= 60:
+    calc_minute += 1
+    calc_second -= 60
+
+effective_time = slot_start.replace(minute=calc_minute, second=calc_second, microsecond=0)
 
 Y = effective_time.year % 100
 M = effective_time.month
