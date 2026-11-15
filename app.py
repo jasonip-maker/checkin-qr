@@ -133,17 +133,28 @@ adjusted_now = now_hkt + datetime.timedelta(hours=st.session_state.hour_offset)
 
 start_dt = datetime.datetime.combine(st.session_state.start_date, datetime.time(0, 0), tzinfo=hkt)
 
-# 1. 先計算暫時的 slot_start 用於估算經過天數
-temp_slot_start = adjusted_now.replace(minute=0, second=0, microsecond=0)
+# 1. 計算自起始日起經過的天數與累積 RTC 讀出偏移秒數
 elapsed_days = max(0.0, (temp_slot_start - start_dt).total_seconds() / 86400.0)
+current_rtc_drift_sec = round(elapsed_days * fitted_drift)
+total_rtc_offset_sec = current_rtc_drift_sec + st.session_state.rtc_readout_offset_sec
+rtc_offset_min = total_rtc_offset_sec / 60.0
 
-# 2. 動態計算換碼邊界（從 2025/08/01 的 :10 開始逐日倒退至 :55）
+# 2. 動態逆向換碼邊界（從 2025/08/01 的 10 分開始逐日倒退，並納入 RTC 偏移與手動偏移）
 total_span_days = 469.5
 boundary_rate = -15.0 / total_span_days
-calculated_boundary_exact = (10.0 + elapsed_days * boundary_rate) % 60
-boundary_minute = (round(calculated_boundary_exact) + st.session_state.real_wakeup_offset_min) % 60
+raw_boundary_exact = 10.0 + elapsed_days * boundary_rate
+adjusted_boundary_exact = raw_boundary_exact + rtc_offset_min + st.session_state.real_wakeup_offset_min
 
-# 3. 根據動態換碼邊界決定當前時段起點
+rounded_boundary = round(adjusted_boundary_exact)
+boundary_minute = rounded_boundary % 60
+
+# 3. 換碼邊界顯示格式（小於 0 時自動加上括號如 (:55)）
+if rounded_boundary < 0:
+    switch_display = f"(:{boundary_minute:02d})"
+else:
+    switch_display = f":{boundary_minute:02d}"
+
+# 4. 根據最終換碼邊界決定當前時段起點
 slot_start = adjusted_now.replace(minute=0, second=0, microsecond=0)
 if adjusted_now.minute >= boundary_minute:
     slot_start += datetime.timedelta(hours=1)
