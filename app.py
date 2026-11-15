@@ -34,7 +34,7 @@ def decode_qr_payload_to_dt(hex_str: str):
 
 
 @st.cache_data
-def calibrate_from_github_cached(url: str, start_date: datetime.date, init_min: int):
+def calibrate_from_github_cached(url: str, start_date: datetime.date):
     try:
         if os.path.exists(LOCAL_REF_PATH):
             with open(LOCAL_REF_PATH, "r", encoding="utf-8") as f:
@@ -43,7 +43,7 @@ def calibrate_from_github_cached(url: str, start_date: datetime.date, init_min: 
             req = urllib.request.urlopen(url, timeout=5)
             lines = req.read().decode("utf-8").splitlines()
     except Exception as e:
-        return 0, 0, 10, 0.0, -0.45
+        return 10, 0.0, -0.45
 
     records = []
     start_dt = datetime.datetime.combine(start_date, datetime.time(0, 0))
@@ -69,19 +69,9 @@ def calibrate_from_github_cached(url: str, start_date: datetime.date, init_min: 
         records.append({"days": days, "sec": sec_in_hour, "obs_dt": obs_dt, "dev_dt": dev_dt})
 
     if not records:
-        return 0, 0, 10, 0.0, -0.45
+        return 10, 0.0, -0.45
 
-    # 1) 計算真實換碼偏移 (分鐘)
-    wakeup_offsets_min = []
-    for r in records:
-        expected = r["obs_dt"].replace(minute=init_min, second=0, microsecond=0)
-        if r["obs_dt"] < expected:
-            expected -= datetime.timedelta(hours=1)
-        delta = (r["obs_dt"] - expected).total_seconds() / 60.0
-        wakeup_offsets_min.append(delta)
-    real_wakeup_offset_min = round(sum(wakeup_offsets_min) / len(wakeup_offsets_min))
-
-    # 2) 線性回歸擬合 base_minute, base_second 與 drift_rate
+    # 線性回歸擬合 base_minute, base_second 與 drift_rate
     n = len(records)
     sum_x = sum(r["days"] for r in records)
     sum_y = sum(r["sec"] for r in records)
@@ -99,10 +89,7 @@ def calibrate_from_github_cached(url: str, start_date: datetime.date, init_min: 
     base_minute = int(intercept // 60)
     base_second = intercept % 60
 
-    # 3) RTC 讀出偏移即為當前累積的晶振飄移總秒數（相對於基底 10:00）
-    # 以 2026/11/12 為例，當前累積飄移約 -210 秒
-    # 這裡可以透過帶入當前 slot_start 計算或預设回傳 0 讓主程式根據 elapsed_days 動態計算
-    return 0, real_wakeup_offset_min, base_minute, base_second, drift_per_day
+    return base_minute, base_second, drift_per_day
 
 
 # 初始化 Session State
@@ -110,23 +97,17 @@ if "hour_offset" not in st.session_state:
     st.session_state.hour_offset = 0
 if "start_date" not in st.session_state:
     st.session_state.start_date = datetime.date(2025, 8, 1)
-if "init_wakeup_min" not in st.session_state:
-    st.session_state.init_wakeup_min = 10
-
-if "real_wakeup_offset_min" not in st.session_state:
-    st.session_state.real_wakeup_offset_min = -15
 
 if "rtc_readout_offset_sec" not in st.session_state:
     st.session_state.rtc_readout_offset_sec = 0
+if "real_wakeup_offset_min" not in st.session_state:
+    st.session_state.real_wakeup_offset_min = 0
 
 # 自動從 reference 載入並校準所有動態參數
-auto_rtc, auto_wake, fitted_base_min, fitted_base_sec, fitted_drift = calibrate_from_github_cached(
+fitted_base_min, fitted_base_sec, fitted_drift = calibrate_from_github_cached(
     REF_URL,
     st.session_state.start_date,
-    st.session_state.init_wakeup_min,
 )
-st.session_state.auto_rtc_offset_sec = auto_rtc
-st.session_state.auto_wakeup_offset_min = auto_wake
 
 if "qr_version" not in st.session_state:
     st.session_state.qr_version = 0
@@ -151,31 +132,32 @@ now_hkt = datetime.datetime.now(hkt)
 adjusted_now = now_hkt + datetime.timedelta(hours=st.session_state.hour_offset)
 
 start_dt = datetime.datetime.combine(st.session_state.start_date, datetime.time(0, 0), tzinfo=hkt)
+
+# 1. 先計算暫時的 slot_start 用於估算經過天數
+temp_slot_start = adjusted_now.replace(minute=0, second=0, microsecond=0)
+elapsed_days = max(0.0, (temp_slot_start - start_dt).total_seconds() / 86400.0)
+
+# 2. 動態計算換碼邊界（從 2025/08/01 的 :10 開始逐日倒退至 :55）
+total_span_days = 469.5
+boundary_rate = -15.0 / total_span_days
+calculated_boundary_exact = (10.0 + elapsed_days * boundary_rate) % 60
+boundary_minute = (round(calculated_boundary_exact) + st.session_state.real_wakeup_offset_min) % 60
+
+# 3. 根據動態換碼邊界決定當前時段起點
 slot_start = adjusted_now.replace(minute=0, second=0, microsecond=0)
-
-boundary_minute = (
-    st.session_state.init_wakeup_min
-    + st.session_state.real_wakeup_offset_min
-    + st.session_state.auto_wakeup_offset_min
-) % 60
-
 if adjusted_now.minute >= boundary_minute:
     slot_start += datetime.timedelta(hours=1)
 
-# 1. 計算自起始日起經過的天數
+# 重新以精確的 slot_start 計算 elapsed_days
 elapsed_days = max(0.0, (slot_start - start_dt).total_seconds() / 86400.0)
 
-# 2. 計算總飄移秒數並四捨五入為整數，即為直覺對應的 RTC 讀出偏移秒數
+# 4. 計算直覺對應的 RTC 讀出偏移秒數與有效時間
 current_rtc_drift_sec = round(elapsed_days * fitted_drift)
-
-# 3. 以標準基準 10:00:00 加上直覺的 RTC 讀出偏移秒數計算當前有效時間
-base_target_time = slot_start.replace(minute=10, second=0, microsecond=0)
-total_sec_in_hour = (10 * 60) + current_rtc_drift_sec
+total_sec_in_hour = (10 * 60) + current_rtc_drift_sec + st.session_state.rtc_readout_offset_sec
 
 calc_minute = int(total_sec_in_hour // 60)
 calc_second = int(total_sec_in_hour % 60)
 
-# 處理秒數小於 0 或超過 60 的進退位
 while calc_second < 0:
     calc_minute -= 1
     calc_second += 60
@@ -274,9 +256,6 @@ with btn_col3:
 
 st.divider()
 
-# 自動計算當前累積的 RTC 讀出偏移秒數（即天數 × 每日飄移率）
-current_rtc_drift_sec = round(elapsed_days * fitted_drift)
-
 st.caption(f"**RTC 讀出偏移：** {current_rtc_drift_sec + st.session_state.rtc_readout_offset_sec:+d} 秒 (自動校準)")
 rtc_col1, rtc_col2 = st.columns(2)
 with rtc_col1:
@@ -288,19 +267,7 @@ with rtc_col1:
         st.session_state.rtc_readout_offset_sec += 1
         st.rerun()
 
-unwrapped_switch_minute = (
-    st.session_state.init_wakeup_min
-    + st.session_state.real_wakeup_offset_min
-    + st.session_state.auto_wakeup_offset_min
-)
-
-switch_display = (
-    f"(:{boundary_minute:02d})"
-    if unwrapped_switch_minute < 0
-    else f":{boundary_minute:02d}"
-)
-
-st.caption(f"**真實換碼偏移：** {switch_display} (自動校準)")
+st.caption(f"**真實換碼偏移：** :{boundary_minute:02d} (自動校準)")
 wake_col1, wake_col2 = st.columns(2)
 with wake_col1:
     if st.button("真實換碼 −1 分鐘", use_container_width=True):
