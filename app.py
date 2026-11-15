@@ -71,14 +71,7 @@ def calibrate_from_github_cached(url: str, start_date: datetime.date, init_min: 
     if not records:
         return 0, 0, 10, 0.0, -0.45
 
-    # 1) 計算 RTC 讀出時間偏移 (秒)
-    offsets_sec = []
-    for r in records:
-        diff_sec = (r["dev_dt"].replace(year=r["obs_dt"].year, month=r["obs_dt"].month, day=r["obs_dt"].day) - r["obs_dt"]).total_seconds()
-        offsets_sec.append(diff_sec)
-    rtc_offset_sec = round(sum(offsets_sec) / len(offsets_sec))
-
-    # 2) 計算真實換碼偏移 (分鐘)
+    # 1) 計算真實換碼偏移 (分鐘)
     wakeup_offsets_min = []
     for r in records:
         expected = r["obs_dt"].replace(minute=init_min, second=0, microsecond=0)
@@ -88,7 +81,7 @@ def calibrate_from_github_cached(url: str, start_date: datetime.date, init_min: 
         wakeup_offsets_min.append(delta)
     real_wakeup_offset_min = round(sum(wakeup_offsets_min) / len(wakeup_offsets_min))
 
-    # 3) 從 reference 自動擬合 base_minute, base_second 與 drift_rate (線性回歸)
+    # 2) 線性回歸擬合 base_minute, base_second 與 drift_rate
     n = len(records)
     sum_x = sum(r["days"] for r in records)
     sum_y = sum(r["sec"] for r in records)
@@ -100,13 +93,16 @@ def calibrate_from_github_cached(url: str, start_date: datetime.date, init_min: 
         drift_per_day = (n * sum_xy - sum_x * sum_y) / denominator
         intercept = (sum_y - drift_per_day * sum_x) / n
     else:
-        drift_per_day = -0.45
+        drift_per_day = -0.4489
         intercept = records[0]["sec"]
 
     base_minute = int(intercept // 60)
     base_second = intercept % 60
 
-    return rtc_offset_sec, real_wakeup_offset_min, base_minute, base_second, drift_per_day
+    # 3) RTC 讀出偏移即為當前累積的晶振飄移總秒數（相對於基底 10:00）
+    # 以 2026/11/12 為例，當前累積飄移約 -210 秒
+    # 這裡可以透過帶入當前 slot_start 計算或預设回傳 0 讓主程式根據 elapsed_days 動態計算
+    return 0, real_wakeup_offset_min, base_minute, base_second, drift_per_day
 
 
 # 初始化 Session State
