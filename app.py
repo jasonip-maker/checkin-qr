@@ -155,19 +155,11 @@ if rounded_boundary < 0:
 else:
     switch_display = f":{boundary_minute:02d}"
 
-# 4. 根據動態換碼邊界決定當前時段起點
-# 4.1. 先算出當前小時的基本整點
-base_hour_slot = adjusted_now.replace(minute=0, second=0, microsecond=0)
+# 4. 統一以當前時間的整點作為該時段起點（消除正數邊界造成的 Hour +1 誤判）
+slot_start = adjusted_now.replace(minute=0, second=0, microsecond=0)
 
-# 4.2. 計算當前小時的「絕對換碼時間點 (Boundary DateTime)」
-# boundary_minute 可以是負數或正常 0~59 分鐘
-boundary_dt = base_hour_slot + datetime.timedelta(minutes=boundary_minute)
-
-# 4.3. 直接以絕對時間點比較：當前時間若已達到或超過換碼點，則進入下一個小時時段
-if adjusted_now >= boundary_dt:
-    slot_start = base_hour_slot + datetime.timedelta(hours=1)
-else:
-    slot_start = base_hour_slot
+# 如果確實需要支援特定負數邊界（如 (:55) 跨越到前一小時尾端）的微調，可保留：
+# 但絕不讓正數偏移（:00 ~ :59）把時段無故往後推一個小時。
 
 # 重新以精確的 slot_start 更新 elapsed_days
 elapsed_days = max(0.0, (slot_start - start_dt).total_seconds() / 86400.0)
