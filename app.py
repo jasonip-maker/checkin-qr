@@ -158,13 +158,19 @@ else:
 # 4. 根據真實換碼偏移（帶正負號的 rounded_boundary）決定當前精確的時段起點
 base_hour_slot = adjusted_now.replace(minute=0, second=0, microsecond=0)
 
-# 候選槽位起點 = 當前整點 + rounded_boundary 分鐘
-candidate_start = base_hour_slot + datetime.timedelta(minutes=rounded_boundary)
+# 當前小時的槽位起點
+start_current = base_hour_slot + datetime.timedelta(minutes=rounded_boundary)
+# 下一小時的槽位起點
+start_next = base_hour_slot + datetime.timedelta(hours=1, minutes=rounded_boundary)
+# 上一小時的槽位起點
+start_prev = base_hour_slot - datetime.timedelta(hours=1, minutes=rounded_boundary) if rounded_boundary < 0 else base_hour_slot - datetime.timedelta(hours=1) + datetime.timedelta(minutes=rounded_boundary)
 
-if adjusted_now < candidate_start:
-    slot_start = candidate_start - datetime.timedelta(hours=1)
+if adjusted_now >= start_next:
+    slot_start = start_next
+elif adjusted_now >= start_current:
+    slot_start = start_current
 else:
-    slot_start = candidate_start
+    slot_start = base_hour_slot - datetime.timedelta(hours=1) + datetime.timedelta(minutes=rounded_boundary)
 
 # 重新以精確的 slot_start 更新 elapsed_days
 elapsed_days = max(0.0, (slot_start - start_dt).total_seconds() / 86400.0)
