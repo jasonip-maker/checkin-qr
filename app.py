@@ -33,7 +33,8 @@ def decode_qr_payload_to_dt(hex_str: str):
     return datetime.datetime(2000 + Y, M, D, H, m, s)
 
 
-def calibrate_from_github(url: str, start_date: datetime.date, init_min: int):
+@st.cache_data
+def calibrate_from_github_cached(url: str, start_date: datetime.date, init_min: int):
     try:
         if os.path.exists(LOCAL_REF_PATH):
             with open(LOCAL_REF_PATH, "r", encoding="utf-8") as f:
@@ -42,8 +43,7 @@ def calibrate_from_github(url: str, start_date: datetime.date, init_min: int):
             req = urllib.request.urlopen(url, timeout=5)
             lines = req.read().decode("utf-8").splitlines()
     except Exception as e:
-        st.error(f"讀取 reference 檔案失敗：{e}")
-        return None
+        return 0, 0
 
     records = []
     for line in lines:
@@ -68,15 +68,13 @@ def calibrate_from_github(url: str, start_date: datetime.date, init_min: int):
         })
 
     if not records:
-        st.warning("在 reference 檔案中找不到符合格式的紀錄。")
-        return None
+        return 0, 0
 
     # 1) 計算 RTC 讀出時間偏移 (秒)
     offsets_sec = []
     for r in records:
         device_dt = r["dev_dt"]
         obs_dt = r["obs_dt"]
-        # 比較裝置解碼時間與實際觀察時間的分/秒差異
         diff_sec = (device_dt.replace(year=obs_dt.year, month=obs_dt.month, day=obs_dt.day) - obs_dt).total_seconds()
         offsets_sec.append(diff_sec)
 
@@ -109,14 +107,17 @@ if "init_wakeup_min" not in st.session_state:
 if "real_wakeup_offset_min" not in st.session_state:
     st.session_state.real_wakeup_offset_min = -15
 
-if "auto_wakeup_offset_min" not in st.session_state:
-    st.session_state.auto_wakeup_offset_min = 0
-
 if "rtc_readout_offset_sec" not in st.session_state:
     st.session_state.rtc_readout_offset_sec = 0
 
-if "auto_rtc_offset_sec" not in st.session_state:
-    st.session_state.auto_rtc_offset_sec = 0
+# 啟動時自動從 reference 載入並校準自動偏移值
+auto_rtc, auto_wake = calibrate_from_github_cached(
+    REF_URL,
+    st.session_state.start_date,
+    st.session_state.init_wakeup_min,
+)
+st.session_state.auto_rtc_offset_sec = auto_rtc
+st.session_state.auto_wakeup_offset_min = auto_wake
 
 if "qr_version" not in st.session_state:
     st.session_state.qr_version = 0
@@ -154,24 +155,12 @@ slot_start = adjusted_now.replace(minute=0, second=0, microsecond=0)
 if adjusted_now.minute >= boundary_minute:
     slot_start += datetime.timedelta(hours=1)
 
-# === 改為完全依據 Reference 記錄與校準值計算 effective_time ===
-# 不再寫死固定的分鐘與秒數，而是透過 reference 中的時間基底與校準偏移量動態對齊
+# 依據自動校準與 RTC 偏移量計算有效時間點
 total_rtc_offset = (
     st.session_state.rtc_readout_offset_sec
     + st.session_state.auto_rtc_offset_sec
 )
-
-# 以 slot_start 為基準，結合 reference 解析出的時間漂移與 RTC 偏移
-effective_time = slot_start + datetime.timedelta(seconds=total_rtc_offset)
-
-# 若有自動校準值，也可以微調預設分鐘對齊 reference 模式
-if st.session_state.auto_rtc_offset_sec != 0 or st.session_state.rtc_readout_offset_sec != 0:
-    # 根據 reference 記錄的分鐘與秒數特徵對齊
-    base_target_min = 6  # 依據 reference 紀錄常見的分鐘數
-    effective_time = slot_start.replace(minute=base_target_min) + datetime.timedelta(seconds=total_rtc_offset)
-else:
-    effective_time = slot_start.replace(minute=6, second=30) + datetime.timedelta(seconds=total_rtc_offset)
-
+effective_time = slot_start.replace(minute=6, second=30) + datetime.timedelta(seconds=total_rtc_offset)
 
 Y = effective_time.year % 100
 M = effective_time.month
@@ -262,7 +251,7 @@ with btn_col3:
 
 st.divider()
 
-st.caption(f"**RTC 讀出偏移：** {st.session_state.rtc_readout_offset_sec + st.session_state.auto_rtc_offset_sec:+d} 秒")
+st.caption(f"**RTC 讀出偏移：** {st.session_state.rtc_readout_offset_sec + st.session_state.auto_rtc_offset_sec:+d} 秒 (自動校準)")
 rtc_col1, rtc_col2 = st.columns(2)
 with rtc_col1:
     if st.button("RTC 讀出 −1 秒", use_container_width=True):
@@ -285,7 +274,7 @@ switch_display = (
     else f":{boundary_minute:02d}"
 )
 
-st.caption(f"**真實換碼偏移：** {switch_display}")
+st.caption(f"**真實換碼偏移：** {switch_display} (自動校準)")
 wake_col1, wake_col2 = st.columns(2)
 with wake_col1:
     if st.button("真實換碼 −1 分鐘", use_container_width=True):
@@ -294,18 +283,6 @@ with wake_col1:
 
     if st.button("真實換碼 +1 分鐘", use_container_width=True):
         st.session_state.real_wakeup_offset_min += 1
-        st.rerun()
-
-if st.button("📡 從 reference 自動校準 RTC / 換碼", use_container_width=True):
-    res = calibrate_from_github(
-        REF_URL,
-        st.session_state.start_date,
-        st.session_state.init_wakeup_min,
-    )
-    if res:
-        auto_rtc_offset_sec, auto_wakeup_offset_min = res
-        st.session_state.auto_rtc_offset_sec = auto_rtc_offset_sec
-        st.session_state.auto_wakeup_offset_min = auto_wakeup_offset_min
         st.rerun()
 
 st.divider()
