@@ -133,13 +133,16 @@ adjusted_now = now_hkt + datetime.timedelta(hours=st.session_state.hour_offset)
 
 start_dt = datetime.datetime.combine(st.session_state.start_date, datetime.time(0, 0), tzinfo=hkt)
 
-# 1. 計算自起始日起經過的天數與累積 RTC 讀出偏移秒數
+# 1. 先定義 temp_slot_start 與計算經過天數
+temp_slot_start = adjusted_now.replace(minute=0, second=0, microsecond=0)
 elapsed_days = max(0.0, (temp_slot_start - start_dt).total_seconds() / 86400.0)
+
+# 2. 計算累積 RTC 讀出偏移秒數與分鐘
 current_rtc_drift_sec = round(elapsed_days * fitted_drift)
 total_rtc_offset_sec = current_rtc_drift_sec + st.session_state.rtc_readout_offset_sec
 rtc_offset_min = total_rtc_offset_sec / 60.0
 
-# 2. 動態逆向換碼邊界（從 2025/08/01 的 10 分開始逐日倒退，並納入 RTC 偏移與手動偏移）
+# 3. 動態逆向換碼邊界（從 2025/08/01 的 :10 開始逐日倒退，並納入 RTC 偏移）
 total_span_days = 469.5
 boundary_rate = -15.0 / total_span_days
 raw_boundary_exact = 10.0 + elapsed_days * boundary_rate
@@ -148,23 +151,23 @@ adjusted_boundary_exact = raw_boundary_exact + rtc_offset_min + st.session_state
 rounded_boundary = round(adjusted_boundary_exact)
 boundary_minute = rounded_boundary % 60
 
-# 3. 換碼邊界顯示格式（小於 0 時自動加上括號如 (:55)）
 if rounded_boundary < 0:
     switch_display = f"(:{boundary_minute:02d})"
 else:
     switch_display = f":{boundary_minute:02d}"
 
-# 4. 根據最終換碼邊界決定當前時段起點
+# 4. 根據動態換碼邊界決定當前時段起點
 slot_start = adjusted_now.replace(minute=0, second=0, microsecond=0)
 if adjusted_now.minute >= boundary_minute:
     slot_start += datetime.timedelta(hours=1)
 
-# 重新以精確的 slot_start 計算 elapsed_days
+# 重新以精確的 slot_start 更新 elapsed_days
 elapsed_days = max(0.0, (slot_start - start_dt).total_seconds() / 86400.0)
-
-# 4. 計算直覺對應的 RTC 讀出偏移秒數與有效時間
 current_rtc_drift_sec = round(elapsed_days * fitted_drift)
-total_sec_in_hour = (10 * 60) + current_rtc_drift_sec + st.session_state.rtc_readout_offset_sec
+total_rtc_offset_sec = current_rtc_drift_sec + st.session_state.rtc_readout_offset_sec
+
+# 5. 計算直覺對應的有效時間
+total_sec_in_hour = (10 * 60) + total_rtc_offset_sec
 
 calc_minute = int(total_sec_in_hour // 60)
 calc_second = int(total_sec_in_hour % 60)
@@ -267,7 +270,7 @@ with btn_col3:
 
 st.divider()
 
-st.caption(f"**RTC 讀出偏移：** {current_rtc_drift_sec + st.session_state.rtc_readout_offset_sec:+d} 秒 (自動校準)")
+st.caption(f"**RTC 讀出偏移：** {total_rtc_offset_sec:+d} 秒 (自動校準)")
 rtc_col1, rtc_col2 = st.columns(2)
 with rtc_col1:
     if st.button("RTC 讀出 −1 秒", use_container_width=True):
@@ -278,7 +281,7 @@ with rtc_col1:
         st.session_state.rtc_readout_offset_sec += 1
         st.rerun()
 
-st.caption(f"**真實換碼偏移：** :{boundary_minute:02d} (自動校準)")
+st.caption(f"**真實換碼偏移：** {switch_display} (自動校準)")
 wake_col1, wake_col2 = st.columns(2)
 with wake_col1:
     if st.button("真實換碼 −1 分鐘", use_container_width=True):
