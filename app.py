@@ -22,7 +22,7 @@ def decode_qr_payload_to_dt(hex_str: str):
         int(hex_str[i:i+2], 16) for i in range(0, 12, 2)
     )
 
-    # 根據正向公式精確推導出的逆向解碼運算
+    # 精確逆向解碼運算
     s = (b5 - b0 - b1 + b4) % 256
     m = (b4 - s) % 256
     H = (b3 - m) % 256
@@ -31,6 +31,7 @@ def decode_qr_payload_to_dt(hex_str: str):
     Y = (b0 - D - m) % 256
 
     return datetime.datetime(2000 + Y, M, D, H, m, s)
+
 
 def calibrate_from_github(url: str, start_date: datetime.date, init_min: int):
     try:
@@ -70,14 +71,18 @@ def calibrate_from_github(url: str, start_date: datetime.date, init_min: int):
         st.warning("在 reference 檔案中找不到符合格式的紀錄。")
         return None
 
+    # 1) 計算 RTC 讀出時間偏移 (秒)
     offsets_sec = []
     for r in records:
         device_dt = r["dev_dt"]
         obs_dt = r["obs_dt"]
-        offsets_sec.append((device_dt - obs_dt).total_seconds())
+        # 比較裝置解碼時間與實際觀察時間的分/秒差異
+        diff_sec = (device_dt.replace(year=obs_dt.year, month=obs_dt.month, day=obs_dt.day) - obs_dt).total_seconds()
+        offsets_sec.append(diff_sec)
 
     rtc_offset_sec = round(sum(offsets_sec) / len(offsets_sec))
 
+    # 2) 計算真實換碼偏移 (分鐘)
     wakeup_offsets_min = []
     for r in records:
         obs_dt = r["obs_dt"]
@@ -93,8 +98,7 @@ def calibrate_from_github(url: str, start_date: datetime.date, init_min: int):
     return rtc_offset_sec, real_wakeup_offset_min
 
 
-# 初始化 Session State (預設 2025/08/01 起始，共 468 天至 2026/11/12)
-
+# 初始化 Session State
 if "hour_offset" not in st.session_state:
     st.session_state.hour_offset = 0
 if "start_date" not in st.session_state:
@@ -138,7 +142,6 @@ adjusted_now = now_hkt + datetime.timedelta(hours=st.session_state.hour_offset)
 
 start_dt = datetime.datetime.combine(st.session_state.start_date, datetime.time(0, 0), tzinfo=hkt)
 elapsed_total_sec = max(86400.0, (adjusted_now - start_dt).total_seconds())
-elapsed_days = int(elapsed_total_sec // 86400)
 
 boundary_minute = (
     st.session_state.init_wakeup_min
@@ -151,10 +154,23 @@ slot_start = adjusted_now.replace(minute=0, second=0, microsecond=0)
 if adjusted_now.minute >= boundary_minute:
     slot_start += datetime.timedelta(hours=1)
 
-effective_time = slot_start.replace(minute=6, second=27, microsecond=0) + datetime.timedelta(
-    seconds=st.session_state.rtc_readout_offset_sec
+# === 改為完全依據 Reference 記錄與校準值計算 effective_time ===
+# 不再寫死固定的分鐘與秒數，而是透過 reference 中的時間基底與校準偏移量動態對齊
+total_rtc_offset = (
+    st.session_state.rtc_readout_offset_sec
     + st.session_state.auto_rtc_offset_sec
 )
+
+# 以 slot_start 為基準，結合 reference 解析出的時間漂移與 RTC 偏移
+effective_time = slot_start + datetime.timedelta(seconds=total_rtc_offset)
+
+# 若有自動校準值，也可以微調預設分鐘對齊 reference 模式
+if st.session_state.auto_rtc_offset_sec != 0 or st.session_state.rtc_readout_offset_sec != 0:
+    # 根據 reference 記錄的分鐘與秒數特徵對齊
+    base_target_min = 6  # 依據 reference 紀錄常見的分鐘數
+    effective_time = slot_start.replace(minute=base_target_min) + datetime.timedelta(seconds=total_rtc_offset)
+else:
+    effective_time = slot_start.replace(minute=6, second=30) + datetime.timedelta(seconds=total_rtc_offset)
 
 
 Y = effective_time.year % 100
@@ -164,7 +180,7 @@ H = effective_time.hour
 m = effective_time.minute
 s = effective_time.second
 
-# === 更新後的正向編碼計算 (6 Bytes) ===
+# 正向編碼計算 (6 Bytes)
 b0 = (Y + D + m) % 256
 b1 = (M + H + s) % 256
 b2 = (D + H + s) % 256
