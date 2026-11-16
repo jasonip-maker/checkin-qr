@@ -299,7 +299,7 @@ def render_controls() -> None:
             st.rerun()
 
     st.divider()
-    st.caption(f"**RTC 讀出偏移：** {st.session_state.rtc_readout_offset_sec:+d} 秒 (自動校準)")
+    st.caption(f"**RTC 讀出偏移：** {‎total_rtc_offset_sec‎:+d} 秒 (自動校準)")
     rtc_col1, rtc_col2 = st.columns(2, gap="xxsmall")
     with rtc_col1:
         if st.button("RTC 讀出 −1 秒", use_container_width=True):
