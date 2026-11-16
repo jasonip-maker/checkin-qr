@@ -1,0 +1,44 @@
+This file is a Streamlit app that generates a QR code for a custom “check-in” system and lets the operator tune the timing logic interactively.
+
+What it does:
+- Decodes and encodes a 12-hex-byte QR payload representing a timestamp.
+- Uses a reverse-engineered formula to turn the payload back into a datetime, and a matching forward formula to build the encoded message.
+- Builds a QR code string like:
+  - checkin://q?91/@<hex_payload>
+- Displays the QR image in the browser so it can be scanned by a device.
+
+Core logic:
+- decode_qr_payload_to_dt(hex_str)
+  - Validates a 12-character hex payload.
+  - Reverses a custom byte transformation to recover a date and time.
+- calibrate_from_github_cached(url, start_date)
+  - Reads reference timing data from a local file or a GitHub URL.
+  - Parses observed timestamps and QR payloads.
+  - Fits a linear drift model to estimate:
+    - base minute/second
+    - drift rate per day
+- Session state stores adjustable parameters such as:
+  - hour_offset
+  - start_date
+  - rtc_readout_offset_sec
+  - real_wakeup_offset_min
+  - QR settings (version, EC level, box size, mask, transpose)
+
+Time-slot behavior:
+- Computes the current HKT time and adjusts it by the configured hour offset.
+- Determines a “switch boundary” minute that changes the active time period based on elapsed days and a fixed drift relationship.
+- Then calculates the effective valid time for the current QR slot and uses it as the timestamp written into the QR code.
+
+UI:
+- Shows the current HKT time and the derived effective time.
+- Displays the generated QR code and the raw string.
+- Lets the user:
+  - Shift the time slot by hours
+  - Tune RTC offset seconds
+  - Adjust real wake-up / boundary offset minutes
+  - Toggle transpose
+  - Change QR version, error correction, mask pattern, and module size
+
+Overall:
+- This is not a general QR generator; it’s a calibration/tuning tool for a specific check-in device or system that expects QR payloads with a custom time encoding scheme.
+- The app is essentially a reverse-engineering + simulation + debugging dashboard for that encoded time format.
