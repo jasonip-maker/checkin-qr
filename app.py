@@ -129,12 +129,12 @@ EC_MAP = {
 
 hkt = datetime.timezone(datetime.timedelta(hours=8), name="HKT")
 now_hkt = datetime.datetime.now(hkt)
-adjusted_now = now_hkt + datetime.timedelta(hours=st.session_state.hour_offset)
+temp_now = now_hkt + datetime.timedelta(hours=st.session_state.hour_offset)
 
 start_dt = datetime.datetime.combine(st.session_state.start_date, datetime.time(0, 0), tzinfo=hkt)
 
 # 1. 先定義 temp_slot_start 與計算經過天數
-temp_slot_start = adjusted_now.replace(minute=0, second=0, microsecond=0)
+temp_slot_start = temp_now.replace(minute=0, second=0, microsecond=0)
 elapsed_days = max(0.0, (temp_slot_start - start_dt).total_seconds() / 86400.0)
 
 # 2. 計算累積 RTC 讀出偏移秒數與分鐘
@@ -157,6 +157,7 @@ else:
 
 # 4. 根據動態換碼邊界決定當前時段起點
 # 4.1. 先算出當前小時的基本整點
+adjusted_now += datetime.timedelta(minutes=10+raw_boundary_exact, seconds=total_rtc_offset_sec)
 base_hour_slot = adjusted_now.replace(minute=0, second=0, microsecond=0)
 
 # 4.2. 計算當前小時的「絕對換碼時間點 (Boundary DateTime)」
