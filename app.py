@@ -158,8 +158,6 @@ else:
 # 4. 根據動態換碼邊界決定當前時段起點
 # 4.1. 先算出當前小時的基本整點
 base_hour_slot = adjusted_now.replace(minute=0, second=0, microsecond=0)
-if rounded_boundary < 0:
-    base_hour_slot += datetime.timedelta(hours=-1)
 
 # 4.2. 計算當前小時的「絕對換碼時間點 (Boundary DateTime)」
 # boundary_minute 可以是負數或正常 0~59 分鐘
