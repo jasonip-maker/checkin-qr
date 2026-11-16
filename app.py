@@ -101,7 +101,7 @@ if "start_date" not in st.session_state:
 if "rtc_readout_offset_sec" not in st.session_state:
     st.session_state.rtc_readout_offset_sec = 0
 if "real_wakeup_offset_min" not in st.session_state:
-    st.session_state.real_wakeup_offset_min = 0
+    st.session_state.real_wakeup_offset_min = 10
 
 # 自動從 reference 載入並校準所有動態參數
 fitted_base_min, fitted_base_sec, fitted_drift = calibrate_from_github_cached(
@@ -145,7 +145,7 @@ rtc_offset_min = total_rtc_offset_sec / 60.0
 # 3. 換碼邊界僅由天數與逆向速率決定（確保 2026/11/13 準確對應到 (:55)）
 total_span_days = 469.5
 boundary_rate = -15.0 / total_span_days
-raw_boundary_exact = 10.0 + elapsed_days * boundary_rate + st.session_state.real_wakeup_offset_min
+raw_boundary_exact = st.session_state.real_wakeup_offset_min + elapsed_days * boundary_rate
 
 rounded_boundary = round(raw_boundary_exact)
 boundary_minute = rounded_boundary % 60
