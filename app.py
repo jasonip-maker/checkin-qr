@@ -265,7 +265,7 @@ st.code(qr_message, language=None)
 st.caption(f"伺服器逆向還原核對：20{decoded_src[0]:02d}-{decoded_src[1]:02d}-{decoded_src[2]:02d} {decoded_src[3]:02d}:{decoded_src[4]:02d}:{decoded_src[5]:02d}")
 st.write("")
 
-btn_col1, btn_col2, btn_col3 = st.columns(3, wrap=False, gap="small")
+btn_col1, btn_col2, btn_col3 = st.columns(3, gap="xxsmall")
 with btn_col1:
     if st.button("➖ 時段 -1", use_container_width=True):
         st.session_state.hour_offset -= 1
@@ -282,7 +282,7 @@ with btn_col3:
 st.divider()
 
 st.caption(f"**RTC 讀出偏移：** {total_rtc_offset_sec:+d} 秒 (自動校準)")
-rtc_col1, rtc_col2 = st.columns(2, wrap=False, gap="small")
+rtc_col1, rtc_col2 = st.columns(2, gap="xxsmall")
 with rtc_col1:
     if st.button("RTC 讀出 −1 秒", use_container_width=True):
         st.session_state.rtc_readout_offset_sec -= 1
@@ -293,7 +293,7 @@ with rtc_col2:
         st.rerun()
 
 st.caption(f"**真實換碼偏移：** {switch_display} (自動校準)")
-wake_col1, wake_col2 = st.columns(2, wrap=False, gap="small")
+wake_col1, wake_col2 = st.columns(2, gap="xxsmall")
 with wake_col1:
     if st.button("真實換碼 −1 分鐘", use_container_width=True):
         st.session_state.real_wakeup_offset_min -= 1
@@ -307,7 +307,7 @@ st.divider()
 
 with st.expander("⚙️ QR Code 與裝置時間參數設定", expanded=False):
     st.caption(f"**對角線翻轉 (Transpose):** {'開啟 (ON)' if st.session_state.qr_transpose else '關閉 (OFF)'}")
-    t_col1, t_col2 = st.columns(2, wrap=False, gap="small")
+    t_col1, t_col2 = st.columns(2, gap="xxsmall")
     with t_col1:
         if st.button("正常方向", key="trans_off", type="secondary" if st.session_state.qr_transpose else "primary", use_container_width=True):
             st.session_state.qr_transpose = False
@@ -318,7 +318,7 @@ with st.expander("⚙️ QR Code 與裝置時間參數設定", expanded=False):
             st.rerun()
 
     st.caption(f"**Version (版本):** {'自動 (Auto)' if st.session_state.qr_version == 0 else f'Version {st.session_state.qr_version} (實際: V{qr.version})'}")
-    v_col1, v_col2, v_col3 = st.columns(3, wrap=False, gap="small")
+    v_col1, v_col2, v_col3 = st.columns(3, gap="xxsmall")
     with v_col1:
         if st.button("➖ Ver -1", use_container_width=True, disabled=(st.session_state.qr_version <= 0)):
             st.session_state.qr_version -= 1
@@ -333,7 +333,7 @@ with st.expander("⚙️ QR Code 與裝置時間參數設定", expanded=False):
             st.rerun()
 
     st.caption(f"**Error Correction (容錯率):** {st.session_state.qr_ec}")
-    ec_cols = st.columns(4, wrap=False, gap="small")
+    ec_cols = st.columns(4, gap="xxsmall")
     for idx, level in enumerate(["L", "M", "Q", "H"]):
         with ec_cols[idx]:
             btn_type = "primary" if st.session_state.qr_ec == level else "secondary"
@@ -343,7 +343,7 @@ with st.expander("⚙️ QR Code 與裝置時間參數設定", expanded=False):
 
     actual_mask = qr.mask_pattern if qr.mask_pattern is not None else qr.best_mask_pattern()
     st.caption(f"**Mask Pattern (遮罩樣式):** {'Auto' if st.session_state.qr_mask == -1 else st.session_state.qr_mask} (實際: M{actual_mask})")
-    mask_row1 = st.columns(5, wrap=False, gap="small")
+    mask_row1 = st.columns(5, gap="xxsmall")
     with mask_row1[0]:
         btn_type = "primary" if st.session_state.qr_mask == -1 else "secondary"
         if st.button("Auto", key="mask_auto", type=btn_type, use_container_width=True):
@@ -356,7 +356,7 @@ with st.expander("⚙️ QR Code 與裝置時間參數設定", expanded=False):
                 st.session_state.qr_mask = m
                 st.rerun()
 
-    mask_row2 = st.columns(4, wrap=False, gap="small")
+    mask_row2 = st.columns(4, gap="xxsmall")
     for m in range(4, 8):
         with mask_row2[m - 4]:
             btn_type = "primary" if st.session_state.qr_mask == m else "secondary"
@@ -365,7 +365,7 @@ with st.expander("⚙️ QR Code 與裝置時間參數設定", expanded=False):
                 st.rerun()
 
     st.caption(f"**Module Size (方格像素):** {st.session_state.qr_box_size} px")
-    m_col1, m_col2, m_col3 = st.columns(3, wrap=False, gap="small")
+    m_col1, m_col2, m_col3 = st.columns(3, gap="xxsmall")
     with m_col1:
         if st.button("➖ Size -2", use_container_width=True, disabled=(st.session_state.qr_box_size <= 4)):
             st.session_state.qr_box_size -= 2
