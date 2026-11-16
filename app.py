@@ -101,7 +101,7 @@ if "start_date" not in st.session_state:
 if "rtc_readout_offset_sec" not in st.session_state:
     st.session_state.rtc_readout_offset_sec = 0
 if "real_wakeup_offset_min" not in st.session_state:
-    st.session_state.real_wakeup_offset_min = 10
+    st.session_state.real_wakeup_offset_min = 0
 
 # 自動從 reference 載入並校準所有動態參數
 fitted_base_min, fitted_base_sec, fitted_drift = calibrate_from_github_cached(
@@ -129,12 +129,12 @@ EC_MAP = {
 
 hkt = datetime.timezone(datetime.timedelta(hours=8), name="HKT")
 now_hkt = datetime.datetime.now(hkt)
-temp_now = now_hkt + datetime.timedelta(hours=st.session_state.hour_offset)
+adjusted_now = now_hkt + datetime.timedelta(hours=st.session_state.hour_offset)
 
 start_dt = datetime.datetime.combine(st.session_state.start_date, datetime.time(0, 0), tzinfo=hkt)
 
 # 1. 先定義 temp_slot_start 與計算經過天數
-temp_slot_start = temp_now.replace(minute=0, second=0, microsecond=0)
+temp_slot_start = adjusted_now.replace(minute=0, second=0, microsecond=0)
 elapsed_days = max(0.0, (temp_slot_start - start_dt).total_seconds() / 86400.0)
 
 # 2. 計算累積 RTC 讀出偏移秒數與分鐘
@@ -145,7 +145,7 @@ rtc_offset_min = total_rtc_offset_sec / 60.0
 # 3. 換碼邊界僅由天數與逆向速率決定（確保 2026/11/13 準確對應到 (:55)）
 total_span_days = 469.5
 boundary_rate = -15.0 / total_span_days
-raw_boundary_exact = st.session_state.real_wakeup_offset_min + elapsed_days * boundary_rate
+raw_boundary_exact = 10.0 + elapsed_days * boundary_rate + st.session_state.real_wakeup_offset_min
 
 rounded_boundary = round(raw_boundary_exact)
 boundary_minute = rounded_boundary % 60
@@ -157,15 +157,11 @@ else:
 
 # 4. 根據動態換碼邊界決定當前時段起點
 # 4.1. 先算出當前小時的基本整點
-adjusted_now = temp_now + datetime.timedelta(minutes=10+raw_boundary_exact, seconds=total_rtc_offset_sec)
 base_hour_slot = adjusted_now.replace(minute=0, second=0, microsecond=0)
 
 # 4.2. 計算當前小時的「絕對換碼時間點 (Boundary DateTime)」
 # boundary_minute 可以是負數或正常 0~59 分鐘
-if rounded_boundary < 0:
-    boundary_dt = base_hour_slot + datetime.timedelta(minutes=boundary_minute+60)
-else:
-    boundary_dt = base_hour_slot + datetime.timedelta(minutes=boundary_minute)
+boundary_dt = base_hour_slot + datetime.timedelta(minutes=boundary_minute)
 
 # 4.3. 直接以絕對時間點比較：當前時間若已達到或超過換碼點，則進入下一個小時時段
 if adjusted_now >= boundary_dt:
