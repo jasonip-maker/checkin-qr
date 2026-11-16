@@ -282,12 +282,13 @@ with btn_col3:
 st.divider()
 
 st.caption(f"**RTC 讀出偏移：** {total_rtc_offset_sec:+d} 秒 (自動校準)")
-rtc_col1, rtc_col2 = st.columns(2, gap="xxsmall")
-with rtc_col1:
+#rtc_col1, rtc_col2 = st.columns(2, gap="xxsmall")
+with st.container(horizontal=True)
+#with rtc_col1:
     if st.button("RTC 讀出 −1 秒", use_container_width=True):
         st.session_state.rtc_readout_offset_sec -= 1
         st.rerun()
-with rtc_col2:
+#with rtc_col2:
     if st.button("RTC 讀出 +1 秒", use_container_width=True):
         st.session_state.rtc_readout_offset_sec += 1
         st.rerun()
