@@ -256,7 +256,7 @@ trans_label = " · 對角翻轉:ON" if st.session_state.qr_transpose else ""
 
 st.caption(f"有效日期時段：{effective_time.strftime('%Y/%m/%d')} Hour {effective_time.hour}{offset_label} ｜ {ver_label} · EC:{st.session_state.qr_ec} · Mask:{mask_label} · Size:{st.session_state.qr_box_size}{trans_label}")
 
-col1, col2, col3 = st.columns([1, 4, 1])
+col1, col2, col3 = st.columns([1, 2, 1])
 with col2:
     st.image(buf.getvalue(), use_container_width=True)
 
@@ -265,7 +265,7 @@ st.code(qr_message, language=None)
 st.caption(f"伺服器逆向還原核對：20{decoded_src[0]:02d}-{decoded_src[1]:02d}-{decoded_src[2]:02d} {decoded_src[3]:02d}:{decoded_src[4]:02d}:{decoded_src[5]:02d}")
 st.write("")
 
-btn_col1, btn_col2, btn_col3 = st.columns(3)
+btn_col0, btn_col1, btn_col2, btn_col3, btn_col4 = st.columns(5)
 with btn_col1:
     if st.button("➖ 時段 -1", use_container_width=True):
         st.session_state.hour_offset -= 1
@@ -287,7 +287,7 @@ with rtc_col1:
     if st.button("RTC 讀出 −1 秒", use_container_width=True):
         st.session_state.rtc_readout_offset_sec -= 1
         st.rerun()
-
+with rtc_col2:
     if st.button("RTC 讀出 +1 秒", use_container_width=True):
         st.session_state.rtc_readout_offset_sec += 1
         st.rerun()
@@ -298,7 +298,7 @@ with wake_col1:
     if st.button("真實換碼 −1 分鐘", use_container_width=True):
         st.session_state.real_wakeup_offset_min -= 1
         st.rerun()
-
+with wake_col2:
     if st.button("真實換碼 +1 分鐘", use_container_width=True):
         st.session_state.real_wakeup_offset_min += 1
         st.rerun()
