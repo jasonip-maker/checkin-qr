@@ -1,0 +1,125 @@
+This is a solid prototype, but it’s doing too many jobs in one file. The biggest improvement would be to separate:
+- calibration math
+- QR generation
+- time-slot logic
+- Streamlit UI
+
+Right now, the file is quite dense and harder to validate, debug, and maintain.
+
+Suggested improvements
+
+- Refactor into functions/classes
+  - `decode_qr_payload_to_dt`
+  - `compute_effective_time`
+  - `generate_qr_image`
+  - `load_reference_records`
+  - `calibrate_from_reference`
+  - `render_controls`
+
+  This will make it much easier to test and reason about each step.
+
+- Replace magic numbers with named constants
+  - `BASE_MHZ`, `total_span_days`, `boundary_rate`, default offsets, fallback values
+  - Example:
+    - `DEFAULT_START_DATE = datetime.date(2025, 8, 1)`
+    - `TOTAL_SWITCH_SPAN_DAYS = 469.5`
+    - `DEFAULT_BOUNDARY_RATE = -15.0 / TOTAL_SWITCH_SPAN_DAYS`
+
+- Add type hints and dataclasses
+  - For example:
+    - `@dataclass class CalibrationResult: base_minute: int; base_second: float; drift_per_day: float`
+  - This makes the output of calibration explicit and easier to work with.
+
+- Normalize time math with modulo instead of while loops
+  - Current logic:
+    - while calc_second < 0: ...
+    - while calc_second >= 60: ...
+  - This can be simplified to:
+    - `total_minutes = int(total_sec_in_hour // 60)`
+    - `total_seconds = int(total_sec_in_hour % 60)`
+    - or use `divmod(abs(value), 60)` with proper sign handling.
+
+- Move the reverse/forward encoding formula into named helpers
+  - Right now the “reverse decode” is hard to follow.
+  - Better:
+    - `encode_time_to_payload(dt)`
+    - `decode_payload_to_time(payload)`
+  - Then add round-trip tests:
+    - `assert decode_payload_to_time(encode_time_to_payload(dt)) == dt`
+
+- Improve the calibration fallback logic
+  - Current fallback is a silent default:
+    - `return 10, 0.0, -0.45`
+  - Better to log or display a warning in the UI when reference data fails to load.
+  - You can also store the last successful calibration and reuse it.
+
+- Use `st.session_state.setdefault(...)` instead of repeated if-blocks
+  - This is cleaner and avoids repeated initialization logic:
+    - `st.session_state.setdefault("hour_offset", 0)`
+    - `st.session_state.setdefault("start_date", datetime.date(2025, 8, 1))`
+
+- Avoid repeated QR generation logic
+  - You build the QR code twice in slightly different ways depending on overflow.
+  - Consolidate into a helper:
+    - `build_qr_code(message, version, ec, box_size, mask)`.
+
+- Centralize UI labels
+  - Repeated values like:
+    - `actual_mask = qr.mask_pattern if qr.mask_pattern is not None else qr.best_mask_pattern()`
+  - Are repeated several times.
+  - Use a small helper:
+    - `mask_label_for(qr, user_mask)`
+
+- Add tests
+  - Especially for:
+    - `decode_qr_payload_to_dt`
+    - `encode/decode round-trip`
+    - calibration when records are empty
+    - boundary minute calculation near the transition date
+  - Since this is a time-encoding algorithm, tests are especially valuable.
+
+- Better file organization
+  - Put the QR/time algorithm in a separate module like:
+    - `core/encoder.py`
+    - `core/calibration.py`
+    - `ui/app.py`
+  - Then app.py stays mostly Streamlit UI.
+
+- Fix the URL fallback
+  - `REF_URL = "https://githubusercontent.com"` looks incomplete as a resource URL.
+  - If the intention is to fetch raw reference content, use a full raw GitHub URL or a clearly defined constant.
+
+- Add docstrings/comments
+  - The reverse-encoded byte operations are non-obvious.
+  - A brief note like:
+    - “This formula maps the device’s encoded payload to a local time slot using the inverse of the hardware’s RTC drift model.”
+  - would greatly help future maintenance.
+
+Example structure
+
+```python
+@dataclass
+class CalibrationResult:
+    base_minute: int
+    base_second: float
+    drift_per_day: float
+
+def decode_qr_payload_to_dt(hex_str: str) -> datetime.datetime:
+    ...
+
+def encode_dt_to_qr_payload(dt: datetime.datetime) -> str:
+    ...
+
+def compute_effective_time(adjusted_now, start_date, rtc_offset, wakeup_offset):
+    ...
+
+def build_qr_code(message, version, ec, box_size, mask):
+    ...
+
+def render_app():
+    ...
+```
+
+Most important fix:
+- Separate the algorithm from the UI. This file is currently “algorithm + UI + calibration + visualization” in one place, and that’s the main maintainability issue.
+
