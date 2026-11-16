@@ -349,16 +349,13 @@ with st.expander("⚙️ QR Code 與裝置時間參數設定", expanded=False):
                 st.rerun()
 
     st.caption(f"**Module Size (方格像素):** {st.session_state.qr_box_size} px")
-    m_col1, m_col2, m_col3 = st.columns(3, gap="xxsmall")
-    with m_col1:
+    with st.container(horizontal=True):
         if st.button("➖ Size -2", use_container_width=True, disabled=(st.session_state.qr_box_size <= 4)):
             st.session_state.qr_box_size -= 2
             st.rerun()
-    with m_col2:
         if st.button("預設 (24px)", use_container_width=True):
             st.session_state.qr_box_size = 24
             st.rerun()
-    with m_col3:
         if st.button("➕ Size +2", use_container_width=True, disabled=(st.session_state.qr_box_size >= 24)):
             st.session_state.qr_box_size += 2
             st.rerun()
