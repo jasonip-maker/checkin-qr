@@ -114,7 +114,7 @@ if "qr_version" not in st.session_state:
 if "qr_ec" not in st.session_state:
     st.session_state.qr_ec = "L"
 if "qr_box_size" not in st.session_state:
-    st.session_state.qr_box_size = 24
+    st.session_state.qr_box_size = 12
 if "qr_mask" not in st.session_state:
     st.session_state.qr_mask = -1
 if "qr_transpose" not in st.session_state:
@@ -258,7 +258,7 @@ st.caption(f"有效日期時段：{effective_time.strftime('%Y/%m/%d')} Hour {ef
 
 col1, col2, col3 = st.columns([1, 2, 1])
 with col2:
-    st.image(buf.getvalue(), use_container_width=True)
+    st.image(buf.getvalue(), use_container_width=False)
 
 st.markdown(f'<a href="{qr_message}" class="uri-link">🔗 {qr_message}</a>', unsafe_allow_html=True)
 st.code(qr_message, language=None)
