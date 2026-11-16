@@ -139,16 +139,16 @@ elapsed_days = max(0.0, (temp_slot_start - start_dt).total_seconds() / 86400.0)
 
 # 2. 計算累積 RTC 讀出偏移秒數與分鐘
 current_rtc_drift_sec = round(elapsed_days * fitted_drift)
-total_rtc_offset_sec = current_rtc_drift_sec
-rtc_offset_min = total_rtc_offset_sec / 60.0 + st.session_state.rtc_readout_offset_sec
+total_rtc_offset_sec = current_rtc_drift_sec + st.session_state.rtc_readout_offset_sec
+rtc_offset_min = total_rtc_offset_sec / 60.0
 
 # 3. 換碼邊界僅由天數與逆向速率決定（確保 2026/11/13 準確對應到 (:55)）
 total_span_days = 469.5
 boundary_rate = -15.0 / total_span_days
-raw_boundary_exact = 10.0 + elapsed_days * boundary_rate
+raw_boundary_exact = 10.0 + elapsed_days * boundary_rate + st.session_state.real_wakeup_offset_min
 
 rounded_boundary = round(raw_boundary_exact)
-boundary_minute = rounded_boundary % 60 + st.session_state.real_wakeup_offset_min
+boundary_minute = rounded_boundary % 60
 
 if boundary_minute < 0:
     switch_display = f"(:{boundary_minute:02d})"
