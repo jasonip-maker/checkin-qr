@@ -167,10 +167,10 @@ boundary_dt = base_hour_slot + datetime.timedelta(minutes=boundary_minute)
 if adjusted_now > boundary_dt:
     slot_start = base_hour_slot + datetime.timedelta(hours=1)
 else:
-    if rounded_boundary < 0:
-        slot_start = base_hour_slot
-    else:
-        slot_start = base_hour_slot + datetime.timedelta(hours=-2)
+    slot_start = base_hour_slot
+
+if rounded_boundary >= 0:
+    slot_start += datetime.timedelta(hours=-1)
 
 # 重新以精確的 slot_start 更新 elapsed_days
 elapsed_days = max(0.0, (slot_start - start_dt).total_seconds() / 86400.0)
