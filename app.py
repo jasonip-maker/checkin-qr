@@ -276,8 +276,6 @@ with st.container(horizontal=True):
         st.session_state.hour_offset += 1
         st.rerun()
 
-st.divider()
-
 st.caption(f"**RTC 讀出偏移：** {total_rtc_offset_sec:+d} 秒 (自動校準)")
 with st.container(horizontal=True):
     if st.button("RTC 讀出 −1 秒", use_container_width=True):
@@ -296,37 +294,30 @@ with st.container(horizontal=True):
         st.session_state.real_wakeup_offset_min += 1
         st.rerun()
 
-st.divider()
-
 with st.expander("⚙️ QR Code 與裝置時間參數設定", expanded=False):
     st.caption(f"**對角線翻轉 (Transpose):** {'開啟 (ON)' if st.session_state.qr_transpose else '關閉 (OFF)'}")
-    t_col1, t_col2 = st.columns(2, gap="xxsmall")
-    with t_col1:
+    with st.container(horizontal=True):
         if st.button("正常方向", key="trans_off", type="secondary" if st.session_state.qr_transpose else "primary", use_container_width=True):
             st.session_state.qr_transpose = False
             st.rerun()
-    with t_col2:
         if st.button("🔄 對角線翻轉", key="trans_on", type="primary" if st.session_state.qr_transpose else "secondary", use_container_width=True):
             st.session_state.qr_transpose = True
             st.rerun()
 
     st.caption(f"**Version (版本):** {'自動 (Auto)' if st.session_state.qr_version == 0 else f'Version {st.session_state.qr_version} (實際: V{qr.version})'}")
-    v_col1, v_col2, v_col3 = st.columns(3, gap="xxsmall")
-    with v_col1:
+    with st.container(horizontal=True):
         if st.button("➖ Ver -1", use_container_width=True, disabled=(st.session_state.qr_version <= 0)):
             st.session_state.qr_version -= 1
             st.rerun()
-    with v_col2:
         if st.button("Auto (V0)", use_container_width=True):
             st.session_state.qr_version = 0
             st.rerun()
-    with v_col3:
         if st.button("➕ Ver +1", use_container_width=True, disabled=(st.session_state.qr_version >= 10)):
             st.session_state.qr_version += 1
             st.rerun()
 
     st.caption(f"**Error Correction (容錯率):** {st.session_state.qr_ec}")
-    ec_cols = st.columns(4, gap="xxsmall")
+    ec_cols = st.columns(4, wrap=False, gap="xxsmall")
     for idx, level in enumerate(["L", "M", "Q", "H"]):
         with ec_cols[idx]:
             btn_type = "primary" if st.session_state.qr_ec == level else "secondary"
