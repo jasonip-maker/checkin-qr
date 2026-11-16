@@ -1,0 +1,208 @@
+This file is a single Streamlit app with 2 functions and many configuration/runtime variables.
+
+Functions
+
+1) decode_qr_payload_to_dt(hex_str: str)
+- Purpose: reverse-decodes the 12-character hex QR payload into a Python datetime.
+- Input:
+  - hex_str: a 12-character hex string, representing 6 bytes
+- Behavior:
+  - Validates length is exactly 12 characters
+  - Splits into 6 bytes
+  - Applies the custom inverse math to recover:
+    - year = 2000 + Y
+    - month M
+    - day D
+    - hour H
+    - minute m
+    - second s
+  - Returns a datetime.datetime object
+- Error handling:
+  - Raises ValueError if the payload length is invalid
+
+2) calibrate_from_github_cached(url: str, start_date: datetime.date)
+- Purpose: calibrates the device’s timing drift and base minute/second by reading example reference logs and fitting a linear model.
+- Decorator:
+  - @st.cache_data
+  - so the results are cached by Streamlit
+- Behavior:
+  - Tries to read reference data from a local file reference, or falls back to fetching it from GitHub
+  - Parses lines that look like:
+    - YYYY/MM/DD HH:MM ... @HEX12
+  - Converts each QR payload to a datetime via decode_qr_payload_to_dt()
+  - Compares observed vs decoded times relative to the provided start date
+  - Performs a simple linear regression on:
+    - x = elapsed days
+    - y = seconds within the hour
+  - Returns:
+    - base_minute
+    - base_second
+    - drift_per_day
+- Fallback if no valid calibration data exists:
+  - returns (10, 0.0, -0.45)
+
+Important variables
+
+Imports / module objects
+- datetime
+  - Python datetime library used for date/time math
+- io
+  - for in-memory PNG buffer generation
+- re
+  - regex parsing of reference log lines
+- urllib.request
+  - handles HTTP fetching from GitHub
+- qrcode
+  - creates QR codes
+- Image
+  - from PIL, for image transpose/rotation
+- st
+  - Streamlit app object
+- os
+  - file path handling
+
+Constants
+- BASE_MHZ = 16.0
+  - unused constant in this file
+- LOCAL_REF_PATH = os.path.join(os.path.dirname(__file__), "reference")
+  - local path to the reference calibration file
+- REF_URL = "https://githubusercontent.com"
+  - base URL used for reference data lookup
+
+Session state keys
+These are stored in st.session_state:
+
+- "hour_offset"
+  - integer hour offset for testing different time slots
+- "start_date"
+  - base date from which elapsed days are measured
+  - initialized to datetime.date(2025, 8, 1)
+- "rtc_readout_offset_sec"
+  - offset in seconds added to RTC-derived time
+- "real_wakeup_offset_min"
+  - offset in minutes for the real-world switch boundary
+- "qr_version"
+  - QR version setting; 0 means auto
+- "qr_ec"
+  - error correction level: "L", "M", "Q", or "H"
+- "qr_box_size"
+  - QR module size in pixels
+- "qr_mask"
+  - mask pattern, or -1 to auto
+- "qr_transpose"
+  - boolean; whether to transpose the QR image diagonally
+
+Calibration-related variables inside calibrate_from_github_cached
+- lines
+  - read reference file content split into lines
+- records
+  - list of parsed calibration observations
+- start_dt
+  - start of the calibration window as midnight on start_date
+- m_obj
+  - regex match object for each line
+- obs_dt
+  - observed datetime from the log
+- hex_str
+  - 12-char QR payload from the log
+- dev_dt
+  - decoded QR datetime
+- days
+  - elapsed days from start_dt
+- sec_in_hour
+  - number of seconds past the minute mark
+- n
+  - number of valid records
+- sum_x, sum_y, sum_xy, sum_xx
+  - regression sums
+- denominator
+  - denominator for the slope calculation
+- drift_per_day
+  - fitted drift rate in seconds/day
+- intercept
+  - fitted base seconds value
+- base_minute
+  - integer minute portion of intercept
+- base_second
+  - remaining seconds portion of intercept
+
+Main app runtime variables
+These are created after initialization and drive the QR generation:
+
+- EC_MAP
+  - maps error-correction letters to qrcode constants
+- hkt
+  - timezone object for Hong Kong Time (UTC+8)
+- now_hkt
+  - current datetime in HKT
+- adjusted_now
+  - now_hkt plus hour_offset
+- start_dt
+  - start_date at midnight in HKT
+- temp_slot_start
+  - adjusted_now rounded down to the start of the current hour
+- elapsed_days
+  - number of days from start_dt to temp_slot_start
+- current_rtc_drift_sec
+  - RTC drift in seconds, based on elapsed_days * fitted_drift
+- total_rtc_offset_sec
+  - RTC drift + rtc_readout_offset_sec
+- rtc_offset_min
+  - total_rtc_offset_sec / 60
+- total_span_days
+  - constant: 469.5
+- boundary_rate
+  - computed switch boundary rate: -15 / total_span_days
+- raw_boundary_exact
+  - exact boundary minute value
+- rounded_boundary
+  - rounded raw boundary
+- boundary_minute
+  - boundary expressed as minute-of-hour
+- switch_display
+  - safety-formatted string showing the real-world switch boundary
+- base_hour_slot
+  - adjusted_now at the top of the hour
+- boundary_dt
+  - exact datetime of the boundary for the current hour
+- slot_start
+  - selected active slot start time
+- effective_time
+  - computed effective datetime used for QR payload generation
+
+Payload / output variables
+- Y, M, D, H, m, s
+  - year, month, day, hour, minute, second of effective_time
+- b0, b1, b2, b3, b4, b5
+  - six bytes encoded into the QR payload
+- decoded_src
+  - tuple of (Y, M, D, H, m, s)
+- hex_payload
+  - final 12-character hexadecimal payload
+- qr_message
+  - string like:
+    - checkin://q?91/@<hex_payload>
+- target_version
+  - chosen QR version, or None for auto
+- target_mask
+  - chosen mask pattern, or None for auto
+- qr
+  - qrcode.QRCode instance
+- img
+  - generated QR image
+- buf
+  - in-memory PNG buffer
+
+UI display variables
+- offset_label
+  - text showing the hour offset in the caption
+- ver_label
+  - either "Auto" or Vn
+- actual_mask
+  - actual mask pattern used by qrcode
+- mask_label
+  - formatted display string for mask setting
+- trans_label
+  - text for transpose state
+
+There are no classes in this file; it is a procedural Streamlit script.
