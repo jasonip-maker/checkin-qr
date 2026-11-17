@@ -247,7 +247,6 @@ if st.session_state.qr_transpose:
 buf = io.BytesIO()
 img.save(buf, format="PNG")
 
-st.dataframe(height="content")
 st.subheader(f"{now_hkt.strftime('%Y-%m-%d %H:%M:%S')} HKT")
 offset_label = f" (微調: {st.session_state.hour_offset:+d})" if st.session_state.hour_offset != 0 else ""
 ver_label = "Auto" if st.session_state.qr_version == 0 else f"V{qr.version}"
