@@ -164,11 +164,9 @@ base_hour_slot = adjusted_now.replace(minute=0, second=0, microsecond=0)
 boundary_dt = base_hour_slot + datetime.timedelta(minutes=boundary_minute)
 
 # 4.3. 直接以絕對時間點比較：當前時間若已達到或超過換碼點，則進入下一個小時時段
+slot_start = base_hour_slot
 if adjusted_now >= boundary_dt:
-    slot_start = base_hour_slot + datetime.timedelta(hours=1)
-else:
-    slot_start = base_hour_slot
-
+    slot_start += datetime.timedelta(hours=1)
 if rounded_boundary >= 0:
     slot_start += datetime.timedelta(hours=-1)
 
