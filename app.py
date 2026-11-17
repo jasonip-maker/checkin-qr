@@ -317,9 +317,8 @@ with st.expander("⚙️ QR Code 與裝置時間參數設定", expanded=False):
             st.rerun()
 
     st.caption(f"**Error Correction (容錯率):** {st.session_state.qr_ec}")
-    ec_cols = st.columns(4, wrap=False, gap="xxsmall")
-    for idx, level in enumerate(["L", "M", "Q", "H"]):
-        with ec_cols[idx]:
+    with st.container(horizontal=True):
+        for idx, level in enumerate(["L", "M", "Q", "H"]):
             btn_type = "primary" if st.session_state.qr_ec == level else "secondary"
             if st.button(f"{level}", key=f"ec_{level}", type=btn_type, use_container_width=True):
                 st.session_state.qr_ec = level
