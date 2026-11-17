@@ -114,7 +114,7 @@ if "qr_version" not in st.session_state:
 if "qr_ec" not in st.session_state:
     st.session_state.qr_ec = "L"
 if "qr_box_size" not in st.session_state:
-    st.session_state.qr_box_size = 12
+    st.session_state.qr_box_size = 4
 if "qr_mask" not in st.session_state:
     st.session_state.qr_mask = -1
 if "qr_transpose" not in st.session_state:
@@ -339,11 +339,11 @@ with st.expander("⚙️ QR Code 與裝置時間參數設定", expanded=False):
 
     st.caption(f"**Module Size (方格像素):** {st.session_state.qr_box_size} px")
     with st.container(horizontal=True):
-        if st.button("➖ Size -2", use_container_width=True, disabled=(st.session_state.qr_box_size <= 4)):
+        if st.button("➖ Size -2", use_container_width=True, disabled=(st.session_state.qr_box_size <= 2)):
             st.session_state.qr_box_size -= 2
             st.rerun()
-        if st.button("預設 (24px)", use_container_width=True):
-            st.session_state.qr_box_size = 24
+        if st.button("預設 (4px)", use_container_width=True):
+            st.session_state.qr_box_size = 4
             st.rerun()
         if st.button("➕ Size +2", use_container_width=True, disabled=(st.session_state.qr_box_size >= 24)):
             st.session_state.qr_box_size += 2
