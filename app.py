@@ -326,22 +326,14 @@ with st.expander("⚙️ QR Code 與裝置時間參數設定", expanded=False):
 
     actual_mask = qr.mask_pattern if qr.mask_pattern is not None else qr.best_mask_pattern()
     st.caption(f"**Mask Pattern (遮罩樣式):** {'Auto' if st.session_state.qr_mask == -1 else st.session_state.qr_mask} (實際: M{actual_mask})")
-    mask_row1 = st.columns(5, gap="xxsmall")
+    mask_row1 = st.columns(2, gap="xxsmall")
     with mask_row1[0]:
         btn_type = "primary" if st.session_state.qr_mask == -1 else "secondary"
         if st.button("Auto", key="mask_auto", type=btn_type, use_container_width=True):
             st.session_state.qr_mask = -1
             st.rerun()
-    for m in range(4):
-        with mask_row1[m + 1]:
-            btn_type = "primary" if st.session_state.qr_mask == m else "secondary"
-            if st.button(f"{m}", key=f"mask_{m}", type=btn_type, use_container_width=True):
-                st.session_state.qr_mask = m
-                st.rerun()
-
-    mask_row2 = st.columns(4, gap="xxsmall")
-    for m in range(4, 8):
-        with mask_row2[m - 4]:
+    with mask_row1[1]=st.container(horizontal=True):
+        for m in range(8):
             btn_type = "primary" if st.session_state.qr_mask == m else "secondary"
             if st.button(f"{m}", key=f"mask_{m}", type=btn_type, use_container_width=True):
                 st.session_state.qr_mask = m
